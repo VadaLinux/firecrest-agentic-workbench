@@ -199,3 +199,56 @@ adjust the theory.
 One real consequence remains and is unchanged: embedding and reranking still run on CPU
 on this host, and that — not any download — is what threatens prompt 04's
 under-five-minute ingestion target.
+
+## 8. There is no supported headless ingestion path
+
+Prompt 04 assumes the corpus can simply be ingested. Establishing how took longer than
+expected, and the answer constrains both this prompt and the reproducibility story the
+project tells CSCS.
+
+**What exists.** Requirement FR-024, specified in `docs/specs/spec-026-ingestion-api-facade.md`
+(status: Implemented), mandates "one canonical programmatic ingestion API for local
+filesystem inputs". That API is `src/processing/ingestion_api.py`, and its public contract
+is:
+
+```python
+collect_paths(root, *, recursive=True, extensions=None) -> list[Path]
+load_documents(paths, *, doc_id=None, parsing_overrides=None) -> list[Document]
+load_documents_from_inputs(inputs) -> list[Document]
+generate_stable_id(file_path) -> str          # doc-<full lowercase sha256>
+sanitize_document_metadata(meta, *, source_filename)
+clear_ingestion_cache()
+```
+
+**What that API does and does not cover.** Read the spec's own summary of ownership: path
+collection, stable identifier generation, document loading, metadata sanitation. It is a
+**parsing facade**. It turns files into parsed `Document` objects. It does not index them.
+
+**Where the rest lives.** Getting those documents into Qdrant and activating them is
+handled by `src/ui/ingest_adapter.py` (`ingest_inputs`) plus a snapshot-transaction
+sequence orchestrated inside `src/pages/02_documents.py`
+(`_start_ingestion_job`: `begin_snapshot` → `_physical_collection_names(workspace)` →
+`ingest_inputs` → manifest writes → `finalize_snapshot`). Both call sites are in the UI
+layer — `src/ui/` and `src/pages/` — which is a deliberate boundary, not an accident.
+
+**Consequence.** There is no CLI, no `[project.scripts]` entry point, and no documented
+headless ingestion. The only supported end-to-end path is the Documents page in the
+Streamlit UI. Something calling itself an integration must either drive that UI or
+reimplement the snapshot transaction, including the physical collection naming, which is
+derived from the snapshot workspace directory name:
+
+```python
+build_id = "".join(c for c in workspace.name.removeprefix("_tmp-") if c.isalnum())
+```
+
+That is replicable, but it means depending on an internal naming rule that upstream has not
+committed to.
+
+**Why this matters beyond prompt 04.** The project's pitch is that the build is
+reproducible by anyone at CSCS. For the FirecREST side that holds — everything is a script
+in this repository. For the DocMind side, corpus ingestion is a sequence of clicks unless
+this is solved. That asymmetry is worth naming in the pitch rather than discovering live.
+
+It also has a direct bearing on prompt 08: the failure-scenario demo requires a job log to
+be ingested so DocMind can diagnose from it. If ingestion is click-driven, that step is
+manual on demo day, and the rehearsed fallback transcript becomes more important, not less.
