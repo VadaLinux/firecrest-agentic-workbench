@@ -42,7 +42,7 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full breakdown of each compon
 
 | Component | Role | Repo |
 |---|---|---|
-| [Hermes](https://github.com/OpenBMB/Hermes) *(agent CLI)* | Executes the work: turns a request into MCP tool calls | your existing runtime |
+| [Hermes](https://github.com/NousResearch/hermes-agent) *(agent CLI)* | Executes the work: turns a request into MCP tool calls | your existing runtime |
 | [Multica](https://github.com/multica-ai/multica) | Board where issues get assigned to Hermes like a teammate; Telegram channel | self-hosted (Docker) |
 | [MetaMCP](https://github.com/metatool-ai/metamcp) | Aggregates the FirecREST tool + DocMind tool behind one authenticated endpoint | self-hosted (Docker) |
 | [DocMind](https://github.com/BjornMelin/docmind-ai-llm) | Local-first RAG over FirecREST docs + job logs, so the agent doesn't hallucinate API parameters | self-hosted |
