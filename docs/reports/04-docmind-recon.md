@@ -252,3 +252,60 @@ this is solved. That asymmetry is worth naming in the pitch rather than discover
 It also has a direct bearing on prompt 08: the failure-scenario demo requires a job log to
 be ingested so DocMind can diagnose from it. If ingestion is click-driven, that step is
 manual on demo day, and the rehearsed fallback transcript becomes more important, not less.
+
+## 9. Two practical constraints found while actually ingesting
+
+### 9.1 Two thirds of the required corpus has an unsupported extension
+
+`src/processing/ingestion_api.py` accepts only:
+
+```python
+_DEFAULT_EXTENSIONS: set[str] = {".pdf", ".txt", ".md", ".markdown", ".rst"}
+```
+
+Prompt 04 asks for three corpora, and two of them arrive in formats DocMind will not
+load:
+
+| Required corpus | Natural extension | Accepted? |
+|---|---|---|
+| the hot cache markdown | `.md` | yes |
+| the FirecREST OpenAPI spec | `.yaml` | **no** |
+| job logs from `firecrest-mcp/logs/` | `.log` | **no** |
+
+Nothing errors. The files are simply not ingested, and the index looks built. The corpus
+has to be staged as `.txt` (or converted) before upload. Worth knowing for prompt 08,
+where a job log is the entire point of the exercise.
+
+### 9.2 `AppTest` cannot complete an asynchronous ingestion on its own
+
+Streamlit's `AppTest` is the right way to drive this UI without a browser: it exposes the
+real widgets (`file_uploader` labelled *Add files*, buttons *Ingest* and *Rebuild*, and a
+*Build GraphRAG (beta)* checkbox that prompt 04 requires to stay off). The browser tool
+cannot be used at all here — it refuses private and internal addresses, so
+`localhost:8501` is unreachable from it.
+
+But `AppTest` executes the app script and returns. It does not keep the process's
+**JobManager** alive, and DocMind's ingestion is asynchronous by design (ADR-052,
+process-owned job manager). The first attempt therefore looked like this:
+
+```
+clicking Ingest ...
+  Acquired snapshot lock .lock
+  info: Corpus change in progress: save · 0%
+  Created snapshot workspace _tmp-dfd4dc6b3c44450db66df01cd853bae3
+  LLM configured via factory: provider=ollama model=qwen3:4b-instruct
+  WARNING Could not configure embeddings (EmbeddingModelInitializationError)
+  Released snapshot lock .lock
+```
+
+and left `/app/data/uploads` **empty** — the upload never persisted.
+
+The embedding warning is a red herring and worth calling out as such: calling
+`_configure_embeddings()` directly succeeds, loads 391 weights and reports
+`is_embedding_ready() == True`. The failure only appears when the job is torn down
+mid-flight as the AppTest script exits. Chasing that warning first would send you into the
+embedding stack for no reason; the real signal was the empty uploads directory.
+
+Workaround being tried: keep the driving process alive and re-run the app script in a loop
+so the process-owned job manager has time to work while the UI reflects progress.
+
