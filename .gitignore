@@ -1,4 +1,6 @@
 .env
+.secrets/
+metamcp/
 firecrest-mcp/logs/
 firecrest-mcp/downloads/
 firecrest-mcp/.venv/

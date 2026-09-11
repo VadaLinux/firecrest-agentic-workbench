@@ -1,0 +1,82 @@
+diff --git a/Dockerfile b/Dockerfile
+index 682422c..8b89846 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -48,14 +48,38 @@ COPY . .
+ # Build all packages and apps
+ RUN pnpm build
+ 
+-RUN sed -i -e "s/30000/600000/" \
+-    "node_modules/.pnpm/next@15.5.12_react-dom@19.1.2_react@19.1.2__react@19.1.2/node_modules/next/dist/server/lib/router-utils/proxy-request.js" \
+-    "node_modules/.pnpm/next@15.5.12_react-dom@19.1.2_react@19.1.2__react@19.1.2/node_modules/next/dist/esm/server/lib/router-utils/proxy-request.js"
++# Raise Next.js's proxy timeout from 30s to 10min: MCP tool calls legitimately
++# take longer than 30s (a Slurm job submission polls an async task), and the
++# default would cut long requests off mid-flight.
++#
++# Upstream hardcodes a pnpm store path that embeds React's version:
++#   node_modules/.pnpm/next@15.5.12_react-dom@19.1.2_react@19.1.2__react@19.1.2/...
++# React moved to 19.2.4 in the lockfile, which changes that path, so the pinned
++# command fails with "sed: can't read ... No such file or directory" and the
++# image build dies at this step. Matching on the file's own name instead keeps it
++# working across version bumps. Worth reporting upstream.
++RUN find node_modules/.pnpm -type f \
++      \( -path '*/next/dist/server/lib/router-utils/proxy-request.js' \
++      -o -path '*/next/dist/esm/server/lib/router-utils/proxy-request.js' \) \
++      -exec sed -i -e "s/30000/600000/" {} + \
++    && find node_modules/.pnpm -type f \
++      -path '*/next/dist/server/lib/router-utils/proxy-request.js' \
++      -exec grep -l "600000" {} + > /dev/null
+ 
+ # Production runner stage
+ FROM base AS runner
+ WORKDIR /app
+ 
++# pnpm refuses to replace an existing node_modules without a TTY unless it knows
++# it is running unattended:
++#   ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY
++# The runner stage copies node_modules from the builder (which has dev
++# dependencies) and then runs `pnpm install --prod`, so pnpm always wants to do
++# that removal and the build dies at that step. Upstream appears to rely on the
++# CI environment being set; setting it in the image makes the build reproducible
++# locally. Worth reporting upstream.
++ENV CI=true
++
+ # OCI image labels
+ LABEL org.opencontainers.image.source="https://github.com/metatool-ai/metamcp"
+ LABEL org.opencontainers.image.description="MetaMCP - aggregates MCP servers into a unified MetaMCP"
+@@ -86,11 +110,30 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+ COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
+ COPY --from=builder --chown=nextjs:nodejs /app/pnpm-workspace.yaml ./
+ 
+-# Install production dependencies only
+-RUN pnpm install --prod
+-
+-# Install drizzle-kit locally in backend for migrations
+-RUN cd apps/backend && pnpm add drizzle-kit@0.31.1
++# drizzle-kit is a devDependency of apps/backend, but docker-entrypoint.sh runs
++# `pnpm exec drizzle-kit migrate` at startup, so it has to survive a production
++# install.
++#
++# Promoting it in package.json *before* the single install is deliberate; adding
++# it afterwards does not work, in two different ways:
++#   1. a plain `pnpm add` after `pnpm install --prod` widens the recorded
++#      included-dependency set from {dependencies, optionalDependencies} to also
++#      include devDependencies, and pnpm refuses with
++#      ERR_PNPM_INCLUDED_DEPS_CONFLICT;
++#   2. matching the scope with `pnpm add --prod` clears that error but leaves the
++#      binary unlinked from apps/backend/node_modules/.bin, so the container still
++#      dies with `Command "drizzle-kit" not found`.
++# Changing package.json first means one install, one scope, no conflict.
++#
++# The trailing `test -x` turns both failure modes into a build error instead of a
++# container that starts and then cannot migrate.
++RUN cd apps/backend \
++ && pnpm pkg set dependencies.drizzle-kit="^0.31.1" \
++ && pnpm pkg delete devDependencies.drizzle-kit \
++ && cd /app \
++ && pnpm install --prod \
++ && test -x apps/backend/node_modules/.bin/drizzle-kit \
++ && echo "verified: drizzle-kit binary is linked for the migration step"
+ 
+ # Copy startup script
+ COPY --chown=nextjs:nodejs docker-entrypoint.sh ./

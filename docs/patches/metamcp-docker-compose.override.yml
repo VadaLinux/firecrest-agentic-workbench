@@ -1,0 +1,15 @@
+# Local override: build MetaMCP from source instead of pulling the published image.
+#
+# Why this exists: the published image (ghcr.io/metatool-ai/metamcp:latest, v2.4.22)
+# predates the BOOTSTRAP_* configuration support that exists on main. Without it the
+# instance can only be configured by hand through the web UI. Building from source
+# gives a declaratively configured, reproducible instance — see docs/METAMCP.md.
+#
+# The upstream docker-compose.yml is left untouched so it stays diffable against
+# the project's own repository.
+services:
+  app:
+    image: metamcp-local:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
