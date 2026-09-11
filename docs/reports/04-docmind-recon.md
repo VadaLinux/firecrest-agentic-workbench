@@ -1,0 +1,158 @@
+# Prompt 04 — DocMind reconnaissance findings
+
+**Status:** recon only; prompt 04 is in progress
+**Date:** 2026-09-11
+**Upstream:** `BjornMelin/docmind-ai-llm` @ `d32fb3c` (2026-07-18)
+
+These are findings verified against the real repository and a running instance, not
+readings of our own prose. They are recorded now because several of them contradict
+claims this project makes elsewhere, and one of them breaks the prompt's own
+instructions.
+
+---
+
+## 1. The prompt's model-pull command cannot work as written
+
+`prompts/04-docmind-corpus.md` step 2 instructs:
+
+```bash
+docker compose exec ollama ollama pull qwen3:4b-instruct
+```
+
+Run against the upstream compose, this fails:
+
+```
+pulling manifest
+Error: pull model manifest: Get "https://registry.ollama.ai/v2/library/qwen3/manifests/4b-instruct":
+  dial tcp: lookup registry.ollama.ai on 127.0.0.11:53: server misbehaving
+```
+
+**Cause.** Upstream's `docker-compose.yml` declares two networks and marks the one
+Ollama lives on as internal:
+
+```yaml
+networks:
+  frontend:
+  backend:
+    internal: true          # <-- no egress
+```
+
+`ollama` is attached only to `backend`; the `app` service gets `frontend` as well.
+An `internal: true` network has no route off the host, so the Ollama container cannot
+resolve or reach `registry.ollama.ai`. Container-to-container traffic on `backend`
+still works, which is why DocMind itself would talk to Ollama fine — only the *pull*
+is impossible.
+
+**Not a one-off.** A plain `getent hosts registry.ollama.ai` inside that container also
+fails, so this is a routing property, not a transient registry problem.
+
+**Ways through, in order of how much they change the upstream design:**
+
+1. Give `ollama` a second network that is not internal — a three-line compose override
+   adding `frontend` to the `ollama` service. Keeps upstream's architecture (DocMind
+   owns its inference backend) and makes the stack self-contained.
+2. Point `DOCMIND_OLLAMA_BASE_URL` at a host Ollama instead, and stop running the
+   containerised one. Requires the host to have the model and the app to be allowed to
+   reach it.
+3. Pre-seed the `ollama` volume out of band.
+
+This matters beyond the demo: anyone following the upstream README to run this on a
+fresh machine hits the same wall.
+
+## 2. DocMind ships its own Ollama, so a host install is not what it uses
+
+`docker-compose.yml` pins `ollama/ollama:0.31.2` and sets
+`DOCMIND_OLLAMA_BASE_URL: http://ollama:11434`. DocMind therefore runs its **own**
+inference backend inside the compose project and never touches an Ollama installed on
+the host.
+
+Two consequences:
+
+- Installing Ollama on the host (as this project did, for the "local-first" story) is
+  **not** what makes the DocMind demo work. It is a second, unused inference server
+  unless option 2 above is chosen deliberately. The host Ollama here is **0.34.0**,
+  newer than the pinned **0.31.2**.
+- Our `docs/INFERENCE.md` describes the laptop configuration purely in terms of
+  environment variables, which reads as though any Ollama will do. It does not mention
+  that DocMind brings its own, or at which version.
+
+## 3. Our inference environment variable names are correct — verified
+
+Against upstream's `.env.example`:
+
+| Name in `docs/INFERENCE.md` | Exists upstream? |
+|---|---|
+| `DOCMIND_LLM_BACKEND` | ✅ `ollama \| openai_compatible \| vllm \| lmstudio \| llamacpp` |
+| `DOCMIND_OLLAMA_BASE_URL` | ✅ |
+| `DOCMIND_LLM_REQUEST__MODEL` | ✅ |
+| `DOCMIND_OPENAI__BASE_URL` | ✅ |
+| `DOCMIND_OPENAI__API_KEY` | ✅ |
+| `DOCMIND_SECURITY__ALLOW_REMOTE_ENDPOINTS` | ✅ |
+
+This is the first part of the repository whose technical content has checked out
+against reality, and it is worth saying so plainly given the number of things that have
+not.
+
+## 4. Three of our own documents disagree about how many variables the CSCS swap needs
+
+The claim appears in the pitch material with three different values:
+
+| Document | Claim |
+|---|---|
+| `ARCHITECTURE.md` (principle 5) | "no code changes, **one** environment variable" |
+| `CSCS-PROPOSAL.md` | "it's **three** environment variables, no code change" |
+| `docs/INFERENCE.md` (closing section) | "swaps **three** environment variables" |
+| `docs/INFERENCE.md` (the block itself) | lists **five** |
+
+Verified against upstream, the real minimum for the `openai_compatible` swap is
+**four** — backend, base URL, API key, model:
+
+```
+DOCMIND_LLM_BACKEND=openai_compatible
+DOCMIND_OPENAI__BASE_URL=https://api.inference.cscs.ch/v1
+DOCMIND_OPENAI__API_KEY=<key>
+DOCMIND_LLM_REQUEST__MODEL=apertus-70b
+```
+
+`DOCMIND_SECURITY__ALLOW_REMOTE_ENDPOINTS` is a fifth variable that may or may not be
+required: upstream's policy allows loopback always, and requires non-loopback hosts to
+be allowlisted *and* to resolve to public addresses. `api.inference.cscs.ch` is public,
+so it may pass with the default, but this has **not** been tested — no CSCS credentials
+have been requested, and `docs/INFERENCE.md` itself commits us to not claiming we have.
+
+**Action:** pick one number and make all three documents say it, then verify against a
+real endpoint before the pitch repeats it. A number that differs between the proposal
+and the architecture notes is exactly the kind of detail a reviewer spots.
+
+## 5. Smaller things worth having written down
+
+- **The UI is on port 8501** (Streamlit). Not stated anywhere in our documents.
+- **Ingestion is UI- or CLI-driven.** DocMind is a Streamlit application; it does not
+  expose a query API out of the box. Prompt 04 step 5 asks for it to be registered in
+  MetaMCP as `query_docs`, so a wrapper will be needed, as the prompt itself anticipates
+  ("if DocMind doesn't natively speak MCP, wrap its query API the same way
+  `firecrest-mcp` wraps FirecREST's REST API").
+- **Upstream's `.env.example` sets `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`.**
+  Copied verbatim into `.env`, those block the Hugging Face downloads needed for the
+  embedding model (`BAAI/bge-m3`) and reranker (`BAAI/bge-reranker-v2-m3`) on a first
+  run, and the failure will look like a missing model rather than a misconfiguration.
+- **`DOCMIND_ENABLE_GPU_ACCELERATION=true` is the upstream default.** This host has no
+  usable NVIDIA driver, so it must be set false or startup will probe for a GPU that
+  cannot work.
+- **Embedding and reranking are not small.** `bge-m3` plus `bge-reranker-v2-m3` are
+  multi-gigabyte downloads and run on CPU here, which is the main risk to prompt 04's
+  stated goal of ingesting in under five minutes.
+
+## 6. What this means for the demo narrative
+
+`docs/INFERENCE.md` ends by committing the project to demo against local Ollama and to
+*not* claim untested access to `api.inference.cscs.ch`. That commitment is sound and
+should hold — but it is currently undermined from two directions:
+
+- the "one/three environment variables" claim, which is wrong and unverified (§4);
+- the implication that laptop inference is whatever Ollama you have, when DocMind pins
+  its own version and its container cannot currently pull a model at all (§1, §2).
+
+Neither is fatal to the project. Both are the kind of thing that turns a good live demo
+into an awkward question, so they are recorded here before prompt 04 is finished rather
+than in a report afterwards.
