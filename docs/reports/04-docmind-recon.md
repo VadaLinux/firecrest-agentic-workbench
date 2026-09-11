@@ -132,10 +132,20 @@ and the architecture notes is exactly the kind of detail a reviewer spots.
   MetaMCP as `query_docs`, so a wrapper will be needed, as the prompt itself anticipates
   ("if DocMind doesn't natively speak MCP, wrap its query API the same way
   `firecrest-mcp` wraps FirecREST's REST API").
-- **Upstream's `.env.example` sets `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`.**
-  Copied verbatim into `.env`, those block the Hugging Face downloads needed for the
-  embedding model (`BAAI/bge-m3`) and reranker (`BAAI/bge-reranker-v2-m3`) on a first
-  run, and the failure will look like a missing model rather than a misconfiguration.
+- **Embedding and reranking run on CPU here, and that is the real risk.** The models
+  themselves are not a runtime problem: the Dockerfile downloads every default
+  retrieval model (`BAAI/bge-m3`, `BAAI/bge-reranker-v2-m3`, the sparse model) and the
+  Docling parser bundle **during the build**, bakes them into the image under
+  `HF_HUB_CACHE=/app/hf-models`, and then proves offline correctness inside the build
+  with `RUN --network=none HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python ...`. So there
+  are no surprise downloads during a live demo — the cost is paid once, at build time.
+  What remains exposed is CPU inference latency for embedding and reranking, and that is
+  the main risk to prompt 04's stated goal of ingesting in under five minutes.
+- **`.env` does not reach the container.** Upstream's `app` service uses an inline
+  `environment:` block and declares no `env_file`, so values in `.env` only substitute
+  into the compose file. Following the README's `cp .env.example .env` and expecting the
+  settings to take effect fails silently: the app starts on its defaults. Application
+  configuration has to go in a compose override.
 - **`DOCMIND_ENABLE_GPU_ACCELERATION=true` is the upstream default.** This host has no
   usable NVIDIA driver, so it must be set false or startup will probe for a GPU that
   cannot work.
@@ -156,3 +166,36 @@ should hold — but it is currently undermined from two directions:
 Neither is fatal to the project. Both are the kind of thing that turns a good live demo
 into an awkward question, so they are recorded here before prompt 04 is finished rather
 than in a report afterwards.
+
+## 7. Corrections to this document
+
+Kept visible rather than silently edited, because the same mistake could easily be made
+again by whoever reads this next.
+
+**Originally written, and wrong:** that upstream's `HF_HUB_OFFLINE=1` /
+`TRANSFORMERS_OFFLINE=1` would block first-run downloads of the embedding and reranker
+models, presenting as a missing model.
+
+**Actually the case:** there is no first-run download. The `Dockerfile` pulls every
+default retrieval model and the Docling parser bundle during the build, bakes them into
+the image at `HF_HUB_CACHE=/app/hf-models`, and then proves offline correctness within
+the same build:
+
+```dockerfile
+RUN --network=none HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python - <<'PY'
+```
+
+The offline flags are therefore correct as shipped, and an override that cleared them
+would let the application reach for the network against its own design. The local
+override was corrected accordingly. The practical consequence is the opposite of the
+original claim and better for the demo: **no multi-gigabyte download can surprise us
+mid-presentation**, because that cost is paid at image build time.
+
+The error came from reasoning about what `.env.example` implies instead of reading the
+`Dockerfile`. The build log made it obvious — a step fetching twelve Hugging Face files
+appeared partway through — and the next step was to verify against the file rather than
+adjust the theory.
+
+One real consequence remains and is unchanged: embedding and reranking still run on CPU
+on this host, and that — not any download — is what threatens prompt 04's
+under-five-minute ingestion target.

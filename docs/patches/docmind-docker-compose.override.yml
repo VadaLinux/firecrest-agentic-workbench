@@ -1,0 +1,60 @@
+# Local override for the laptop demo.
+#
+# Kept separate from upstream's docker-compose.yml so the upstream file stays
+# diffable, and so every change we make is visible in one place.
+#
+# Why each change is here:
+#
+# 1. `ollama` gets a second network.
+#    Upstream attaches ollama only to `backend`, which is declared `internal: true`.
+#    An internal network has no route off the host, so the container cannot resolve
+#    or reach registry.ollama.ai and `ollama pull` fails with
+#      dial tcp: lookup registry.ollama.ai on 127.0.0.11:53: server misbehaving
+#    That is the command prompt 04 step 2 tells you to run, so without this the
+#    model can never be fetched. Adding the non-internal `frontend` network gives
+#    egress while keeping `ollama` reachable at the service hostname DocMind uses.
+#
+# 2. Application environment is set here rather than in `.env`.
+#    Upstream's app service uses an inline `environment:` block and declares no
+#    `env_file`, so values in `.env` only substitute into the compose file — they
+#    are never passed to the container. Anything the application must actually read
+#    has to be listed here.
+#
+# 3. GPU acceleration is turned off; the offline flags are deliberately NOT touched.
+#    This host runs CPU-only: the NVIDIA Quadro M3000M has no driver installed, so
+#    upstream's default of DOCMIND_ENABLE_GPU_ACCELERATION=true would probe for a
+#    GPU that cannot work.
+#
+#    HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1 are left exactly as the image sets
+#    them. An earlier version of this override forced them to 0, on the theory that
+#    they would block first-run model downloads — that was wrong. The Dockerfile
+#    downloads every default retrieval model and the Docling parser bundle during
+#    the build, bakes them into the image under HF_HUB_CACHE=/app/hf-models, and
+#    then proves offline correctness inside the build:
+#        RUN --network=none HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python - <<'PY'
+#    So nothing needs downloading at runtime, the flags are correct as they are, and
+#    clearing them would let the app reach for the network against its own design.
+#    The practical benefit for a live demo is that there are no surprise multi-gigabyte
+#    downloads at start-up — they are all a build-time cost.
+services:
+  ollama:
+    networks:
+      - backend
+      - frontend
+
+  app:
+    environment:
+      DOCMIND_LLM_BACKEND: ollama
+      DOCMIND_LLM_REQUEST__MODEL: qwen3:4b-instruct
+      DOCMIND_OLLAMA_BASE_URL: http://ollama:11434
+
+      # CPU-only host: no usable GPU driver.
+      DOCMIND_ENABLE_GPU_ACCELERATION: "false"
+      CUDA_VISIBLE_DEVICES: ""
+
+      # Keep remote-endpoint policy as upstream sets it: compose service hostnames
+      # resolve to private addresses and are on the allowlist explicitly.
+      DOCMIND_SECURITY__ALLOW_REMOTE_ENDPOINTS: "true"
+      DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama"]'
+
+      DOCMIND_DATABASE__QDRANT_URL: http://qdrant:6333
