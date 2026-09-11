@@ -36,17 +36,132 @@
 #    clearing them would let the app reach for the network against its own design.
 #    The practical benefit for a live demo is that there are no surprise multi-gigabyte
 #    downloads at start-up — they are all a build-time cost.
+# 4. Inference budget, sized for CPU inference.
+#    Four settings, each one necessary, all verified by running the retrieval path:
+#
+#    a. DOCMIND_LLM_REQUEST__CONTEXT_WINDOW=16384
+#       DocMind defaults to 131072, which assumes a GPU. On this host the Ollama
+#       model runner crashed outright on a ~8200-token prompt:
+#           llama-server chat error: Post .../v1/chat/completions: EOF
+#           [GIN] 500 | 3m6s | POST "/api/chat"
+#       and the client saw "model runner has unexpectedly stopped". The same model
+#       answered a small prompt in 6.4s, which isolated the cause to prompt size
+#       rather than a broken model.
+#
+#    b. DOCMIND_LLM_REQUEST_TIMEOUT_SECONDS=600 AND DOCMIND_AGENTS__DECISION_TIMEOUT=1000
+#       Both are required, and this is the trap: llm_factory.py computes
+#           timeout_s = min(llm_request_timeout_seconds, agents.decision_timeout)
+#       so raising only the first one silently does nothing. Their defaults are 120
+#       and 200, giving an effective 120s. Raising the first to 600 alone yields 200s.
+#       No error is reported — the request simply keeps timing out, which reads as
+#       "the timeout is still too low" rather than "another setting caps it".
+#
+#    c. DOCMIND_LLM_REQUEST__MAX_OUTPUT_TOKENS=512
+#       Bounds generation length. Answers to these questions need a few hundred
+#       tokens; 2048 only adds minutes of CPU time.
+#
+#    d. DOCMIND_RETRIEVAL__TOP_K=3 and DOCMIND_RETRIEVAL__USE_RERANKING=false
+#       The dominant cost is not generation but *prefill*: 10 chunks is ~8200 tokens
+#       for the model to read before it writes a word. Three chunks cuts it to a third.
+#       Reranking is disabled because it never once succeeded here — every query logged
+#           WARNING reranking:_postprocess_nodes - Text rerank timeout; fail-open
+#       so the cross-encoder was consuming heavy CPU against the LLM for a result the
+#       system then discarded. Disabling it changes nothing about output quality,
+#       because the output never contained reranked results. Measured effect of (c)+(d):
+#       synthesis time fell from 613-651s (and still timing out) to 92.9s.
 services:
   ollama:
     networks:
       - backend
       - frontend
 
+  # DocMind's retrieval stack, published as an MCP server so MetaMCP can aggregate it
+  # alongside firecrest-mcp (prompt 04 step 5).
+  #
+  # Separate service rather than a process inside `app`, for three reasons: DocMind's
+  # image has no MCP package at all, so it needs a derived image anyway; the query path
+  # is read-only w.r.t. the snapshot, so it does not belong in the app's writer-managed
+  # process; and keeping it out of `app` means a crash in the RAG tool cannot take the
+  # Streamlit UI down with it.
+  #
+  # It reuses the same `docmind_data` volume, so it reads exactly the snapshot the app
+  # activated — including a re-ingested one, since the server re-resolves CURRENT per
+  # call. The scripts are bind-mounted as individual files rather than COPY'd into the
+  # image: `docker compose up -d` recreates containers, and anything baked in or copied
+  # with `docker cp` goes stale exactly when you are iterating on it.
+  docmind-mcp:
+    image: docmind-mcp:dev
+    working_dir: /app
+    command:
+      - /app/.venv/bin/python
+      - /app/docmind_mcp.py
+      - --transport
+      - http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8770"
+    ports:
+      - "8770:8770"
+    environment:
+      DOCMIND_LLM_BACKEND: ollama
+      DOCMIND_LLM_REQUEST__MODEL: qwen3:4b-instruct
+      DOCMIND_OLLAMA_BASE_URL: http://ollama:11434
+      DOCMIND_DATABASE__QDRANT_URL: http://qdrant:6333
+      DOCMIND_SECURITY__ALLOW_REMOTE_ENDPOINTS: "true"
+      DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama"]'
+      DOCMIND_ENABLE_GPU_ACCELERATION: "false"
+      # Same inference budget as `app`, for the same reasons — see note 4 above.
+      DOCMIND_LLM_REQUEST__CONTEXT_WINDOW: "16384"
+      DOCMIND_LLM_REQUEST__MAX_OUTPUT_TOKENS: "512"
+      DOCMIND_LLM_REQUEST_TIMEOUT_SECONDS: "600"
+      DOCMIND_AGENTS__DECISION_TIMEOUT: "1000"
+      DOCMIND_RETRIEVAL__TOP_K: "3"
+      DOCMIND_RETRIEVAL__USE_RERANKING: "false"
+    volumes:
+      - docmind_data:/app/data
+      - /home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/docmind_mcp.py:/app/docmind_mcp.py:ro
+      - /home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/docmind_query.py:/app/docmind_query.py:ro
+    depends_on:
+      ollama:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    # The base image's healthcheck probes the Streamlit UI on 8501, which this service
+    # does not run — inherited unchanged, the container reports "unhealthy" while
+    # serving perfectly well, and `depends_on: service_healthy` anywhere downstream
+    # would then block forever. Probe the port this service actually owns.
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 8770), 3).close()"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - frontend
+      - backend
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
   app:
     environment:
       DOCMIND_LLM_BACKEND: ollama
       DOCMIND_LLM_REQUEST__MODEL: qwen3:4b-instruct
       DOCMIND_OLLAMA_BASE_URL: http://ollama:11434
+
+      # Inference budget for CPU-only inference. See note 4 above.
+      DOCMIND_LLM_REQUEST__CONTEXT_WINDOW: "16384"
+      DOCMIND_LLM_REQUEST__MAX_OUTPUT_TOKENS: "512"
+      DOCMIND_LLM_REQUEST_TIMEOUT_SECONDS: "600"
+      DOCMIND_AGENTS__DECISION_TIMEOUT: "1000"
+      DOCMIND_RETRIEVAL__TOP_K: "3"
+      DOCMIND_RETRIEVAL__USE_RERANKING: "false"
 
       # CPU-only host: no usable GPU driver.
       DOCMIND_ENABLE_GPU_ACCELERATION: "false"
