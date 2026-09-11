@@ -109,8 +109,38 @@ unconfined_u:object_r:user_home_t:s0 kong/kong.yml
 ```
 
 This is an environment property, not a defect in FirecREST, and it is invisible to anyone
-developing on a machine without SELinux. It will bite anyone reproducing this build on
-RHEL-family or hardened-SUSE systems.
+developing on a machine without SELinux.
+
+### Which systems this affects
+
+The problem is specific to **SELinux-enabled** distributions. It does **not** occur on
+AppArmor-based ones, because AppArmor does not implement label-based file access control —
+there is no `user_home_t` equivalent, so bind mounts behave normally.
+
+| Mandatory access control | Default on | Affected by this issue |
+|---|---|---|
+| SELinux | RHEL family (RHEL, CentOS Stream, Fedora, Rocky, Alma); **openSUSE Leap 16 / SLES 16** | yes |
+| AppArmor | Ubuntu, Debian; openSUSE Leap ≤ 15.x | no |
+
+Note that SUSE switched defaults: apparmor was the traditional SUSE answer, but **SELinux is
+the default in openSUSE Leap 16.0 and SLES 16**. Most third-party summaries still describe
+"Ubuntu, Debian and SUSE" as AppArmor territory, which is now wrong for SUSE and would send
+anyone debugging this on Leap 16 down the wrong path.
+
+Confirmed on the build host used here (openSUSE Leap 16.0): `getenforce` returns `Enforcing`,
+`/etc/selinux/config` has `SELINUX=enforcing`, and the `apparmor` package is not installed
+at all.
+
+Practical check before assuming this is the cause:
+
+```bash
+getenforce 2>/dev/null        # SELinux present and enforcing?
+ls -Z <bind-mounted-file>     # does it carry user_home_t?
+sestatus -v                   # full policy details
+```
+
+On a Debian or Ubuntu host, `getenforce` will simply not exist — and that is the expected,
+healthy answer there, not a missing prerequisite.
 
 ### Fix
 
