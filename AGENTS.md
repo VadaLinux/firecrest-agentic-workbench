@@ -10,12 +10,24 @@ An MCP wrapper and supporting docs/config for driving CSCS's FirecREST API throu
 
 ```bash
 cd firecrest-mcp
-pip install -r requirements.txt
-pytest                          # unit tests against a mocked FirecREST client
-python server.py --dry-run      # starts the MCP server against the local demo stack
+python3.13 -m venv .venv
+.venv/bin/pip install -r requirements.txt       # runtime only
+.venv/bin/pip install -r requirements-dev.txt   # adds pytest, respx
+
+.venv/bin/python -m pytest                      # unit tests, all FirecREST calls mocked
+.venv/bin/python server.py --dry-run            # starts the MCP server, announces its tool surface
+
+# full lifecycle against the running demo stack (submit → status → log → files)
+.venv/bin/python scripts/mcp_smoke_test.py
 ```
 
-The FirecREST demo stack (`docker compose up -d` from `firecrest/deploy/demo`) must be running for anything beyond `--dry-run`.
+`pytest` must pass with the demo stack **stopped** — no test may depend on it.
+The demo stack (`docker compose up -d` from `firecrest/deploy/demo`) is only needed
+for `mcp_smoke_test.py` and for live tool calls.
+
+Configuration comes from `firecrest-mcp/.env` (copy `.env.example`). Note that
+`FIRECREST_TOKEN_URL` is required in addition to the gateway URL: the Keycloak token
+issuer listens on a different port and cannot be derived from `FIRECREST_BASE_URL`.
 
 ## Conventions
 

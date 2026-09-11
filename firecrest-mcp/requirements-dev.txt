@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8
+respx>=0.22
+pytest-asyncio>=1.0

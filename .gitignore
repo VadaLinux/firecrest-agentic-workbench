@@ -1,5 +1,8 @@
 .env
 firecrest-mcp/logs/
+firecrest-mcp/downloads/
+firecrest-mcp/.venv/
+firecrest-mcp/.pytest_cache/
 docmind-ai-llm/
 firecrest/
 node_modules/

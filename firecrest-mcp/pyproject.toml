@@ -1,0 +1,12 @@
+[project]
+name = "firecrest-mcp"
+version = "0.1.0"
+description = "MCP server exposing CSCS FirecREST to an agent"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "error::DeprecationWarning:firecrest_mcp.*",
+]

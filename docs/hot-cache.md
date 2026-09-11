@@ -286,6 +286,50 @@ The 30-second elapsed time in `sacct` above is the template's `sleep`, not work.
 handler reads a global `JOB_DIR` that the browser/SocketIO path populates but the direct
 `/submit_job` path does not. Retrieve results via `/utilities/view` instead.
 
+## 11. MCP tool surface → FirecREST endpoints
+
+`firecrest-mcp/` exposes exactly five tools. This is the mapping an agent (or a
+reviewer) needs to follow a tool call down to the wire.
+
+| MCP tool | FirecREST calls | Notes |
+|---|---|---|
+| `submit_job(script, system, account)` | `POST /compute/jobs/upload` → `GET /tasks/{id}` | Multipart upload. `POST /compute/jobs` as JSON is **405** on this revision, so an inline script is written to a temp file first — the documented signature is preserved, the transport is not. |
+| `get_job_status(job_id)` | `GET /compute/acct?jobs=<id>` → `GET /tasks/{id}` | **Not** `/compute/jobs/{jobid}`, which returns a stale queue string. `jobs` is a comma-joined list. |
+| `list_files(path)` | `GET /utilities/ls?targetPath=<path>` | Parameter is `targetPath`. |
+| `download_file(path)` | `GET /utilities/download?sourcePath=<path>` | Parameter is **`sourcePath`** — see the inconsistency section below. |
+| `get_job_log(job_id)` | `GET /utilities/download?sourcePath=<out/err>` × 2 | Relies on a local submission record (`logs/submissions.json`) because FirecREST cannot map a bare job id to its output paths. Writes `logs/{jobid}.stdout.log` and `.stderr.log`. |
+
+Authentication is never visible to a tool caller: the client requests a JWT from
+Keycloak, caches it, and refreshes it 30 s before its 300 s expiry.
+
+### A PENDING job reports a placeholder accounting record
+
+While a job is `PENDING`, `sacct` reports a **placeholder identity**: the name comes
+back as `allocation` and the partition as an empty string. The real name and
+partition appear on the first query after the job is allocated and starts.
+
+Reproduced and pinned, immediately after `submit_job`:
+
+```
+  poll 0  t+ 1.35s  name=allocation     partition=             state=PENDING
+  poll 1  t+ 2.66s  name=allocation     partition=             state=PENDING
+  poll 2  t+ 3.98s  name=timing-probe   partition=part01       state=RUNNING
+  poll 3  t+ 5.27s  name=timing-probe   partition=part01       state=COMPLETED
+```
+
+It correlates with the state, not with wall-clock: with a 3-second delay before the
+first query the record is already correct, because by then the job has started.
+
+This matters because it is exactly the moment an agent is most likely to look — it
+submits a job and immediately asks how it is doing. An agent that reports the name
+at that point tells the user the job is called `allocation`.
+
+`get_job_status` therefore returns a `warning` whenever the partition is empty, and
+the tool description tells the agent to report only the state in that case.
+
+Request caching was ruled out as an explanation: identical requests yield distinct
+`task_id` values.
+
 ## Parameter inconsistency: `/utilities/download` uses `sourcePath`
 
 Every other `/utilities/*` endpoint takes the path as **`targetPath`**. `/utilities/download`
