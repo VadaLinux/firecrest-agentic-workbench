@@ -103,6 +103,23 @@ Full step-by-step: [`prompts/00-overview.md`](./prompts/00-overview.md).
 - Event: **3 November 2026, 10:30–17:00 CET**, OAT ETH Zürich building, rooms S15/S16, 14th floor (Andreasstrasse 5, 8050 Zürich). Course fee CHF 80 (lunch + coffee breaks included).
 - Tutors on the day: Ivano Bonesana, Juan Pablo Dorsch, Eirini Koutsaniti, Francesco Pagnamenta, Elia Palme, Rafael Sarmiento (all CSCS/ETH Zurich).
 
+### Build progress
+
+| # | Prompt | State | Report |
+|---|---|---|---|
+| 01 | FirecREST demo stack | done | [`01-firecrest-demo-stack.md`](./docs/reports/01-firecrest-demo-stack.md) |
+| 02 | `firecrest-mcp` wrapper | done | [`02-firecrest-mcp-wrapper.md`](./docs/reports/02-firecrest-mcp-wrapper.md) |
+| 03 | MetaMCP gateway | done | [`03-metamcp-setup.md`](./docs/reports/03-metamcp-setup.md) |
+| 04 | DocMind corpus + `query_docs` | done | [`04-docmind-corpus.md`](./docs/reports/04-docmind-corpus.md) |
+| 05 | Hermes ↔ MetaMCP | next | — |
+| 06 | Multica orchestration | pending | — |
+| 07 | Telegram channel | pending | — |
+| 08 | Failure scenario | pending | — |
+
+The MetaMCP endpoint currently aggregates six tools: five from `firecrest-mcp` and
+`docmind__query_docs` from the local RAG corpus. Resume from
+[`docs/HANDOVER.md`](./docs/HANDOVER.md).
+
 See [`CSCS-PROPOSAL.md`](./CSCS-PROPOSAL.md) for the pitch text and the [preparation checklist](./prompts/00-overview.md) for what still needs to be built before the 3rd.
 
 ## License
