@@ -192,6 +192,100 @@ ingests. On this revision the job's own stdout/stderr are reachable through
 `/utilities/view` and `/utilities/head` at the `job_file_out` / `job_file_err` paths from
 step 5, so prompt 02's wrapper can implement `get_job_log` on top of those.
 
+## 10. The bundled demo client, and how to drive it headlessly
+
+`prompts/01-firecrest-demo-stack.md` step 4 asks for a job submitted "through the demo
+client's own workflow". Finding that client takes longer than using it:
+
+- `deploy/demo/demo_client/` holds only `config.py` and `client_secrets.json` — config
+  fragments, not an application.
+- `src/tests/template_client/`, which `deploy/demo/README.md` tells you to look at, **no
+  longer exists** upstream (only `src/tests/automated_tests` remains). The README is stale.
+- **The real client is `examples/UI-client-credentials/`** — a Flask + SocketIO app built by
+  its own `Makefile`.
+- There is **no client service in `deploy/demo/docker-compose.yml`** at all (17 services, none
+  of them a client), and nothing maps port 7000 as the demo README claims. The client's own
+  default port is **9090**.
+
+It works against this API revision with the `pyfirecrest` version it pins (1.5.1), which is
+contemporary with FirecREST v1.x — consistent with the v1.16.1 spec identified in §0.
+
+### Configuration that works against the local demo stack
+
+Copy `src/config.py.orig` → `src/config.py` and set:
+
+| Setting | Value |
+|---|---|
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | the demo's `firecrest-sample` client |
+| `OIDC_AUTH_REALM` | `kcrealm` |
+| `OIDC_AUTH_BASE_URL` | `http://localhost:8080` |
+| `FIRECREST_URL` | `http://localhost:8000` |
+| `SYSTEM_NAME` | `cluster` |
+| `SYSTEM_PARTITIONS` | `['part01', 'part02']` |
+| `SYSTEM_RESERVATION` | `None` |
+| `USER_GROUP` | `service-account-firecrest-sample` |
+| `SYSTEM_CONSTRAINTS` | `[]` |
+| `CLIENT_PORT` | `9100` (see below) |
+
+`client.py` builds the token URL as
+`f"{OIDC_AUTH_BASE_URL}/auth/realms/{OIDC_AUTH_REALM}/protocol/openid-connect/token"`, so
+`OIDC_AUTH_BASE_URL` must **not** include the trailing `/auth`.
+
+**Port collision:** `CLIENT_PORT = 9090` conflicts with the demo stack's own `openapi`
+service, which maps host `9090` → container `8080`. The client dies at startup with
+`Address in use`. Use 9100.
+
+### Running it
+
+Because the client resolves Keycloak and Kong via `localhost`, it needs host networking —
+which also means the `-p 9090:9090` in the example `Makefile` is dropped:
+
+```bash
+cp -r <clone>/examples/UI-client-credentials /tmp/f7t-demo-client   # build outside the clone
+cd /tmp/f7t-demo-client && mkdir -p log
+cp src/config.py.orig src/config.py   # then edit as per the table above
+docker build -f ./docker/Dockerfile -t firecrest-live .
+docker run -d --network host -v /tmp/f7t-demo-client/log:/var/log --name firecrest-live firecrest-live
+```
+
+### Driving it without a browser
+
+All of these are plain JSON endpoints, so the client is scriptable:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/` | GET | landing page; also performs the system-availability probe |
+| `/list_files?path=<dir>` | GET | Pyfirecrest-backed directory listing |
+| `/list_jobs` | GET | status of jobs the client submitted |
+| `/submit_job` | POST | form fields: `jobName`, `numberOfNodes`, `partition`, `constraint`, `steps`, `isPostProcess` |
+| `/results` | GET | result download — **broken, see below** |
+
+Verified end-to-end:
+
+```
+POST /submit_job  (jobName=echo-hello-client, partition=part01, numberOfNodes=1, steps=1)
+→ {"data": "Batch started"}
+
+$ docker exec cluster sacct -a -X --format=JobID,JobName,Partition,State,ExitCode,Elapsed
+3  echo-hell+  part01  COMPLETED  0:0  00:00:30
+
+GET /list_jobs → jobid 3, name echo-hello-client_1, state COMPLETED
+GET /utilities/view?targetPath=/home/service-account-firecrest-sample/firecrest/<task>/job-3.out
+→ "echo-hello-client_1 started on Fri Sep 11 15:25:28 UTC 2026
+   echo-hello-client_1 finished on Fri Sep 11 15:25:58 UTC 2026"
+```
+
+### Two things about the client worth knowing
+
+**Its "workflow" is deliberately fake.** `src/sbatch_templates/demo.sh.tmpl` sleeps 30 s,
+writes a placeholder `out_${step}0.00.pyfrs`, and chains steps with
+`#SBATCH --dependency=afterok`. It is a UI demo of the *plumbing*, not a real computation.
+The 30-second elapsed time in `sacct` above is the template's `sleep`, not work.
+
+**`GET /results` is broken.** It returns `{"data": "Download error: 'jobDir'"}` — the
+handler reads a global `JOB_DIR` that the browser/SocketIO path populates but the direct
+`/submit_job` path does not. Retrieve results via `/utilities/view` instead.
+
 ## Parameter inconsistency: `/utilities/download` uses `sourcePath`
 
 Every other `/utilities/*` endpoint takes the path as **`targetPath`**. `/utilities/download`

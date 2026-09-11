@@ -78,6 +78,30 @@ HTTP 200  Content-Type: application/octet-stream
           body: hello\n
 ```
 
+**Second verification — through the bundled demo client itself**
+
+The job was also submitted through `examples/UI-client-credentials/` (the actual bundled
+client; see §6.1 for why it was hard to locate), driven headlessly over HTTP:
+
+```
+POST http://localhost:9100/submit_job
+  jobName=echo-hello-client  partition=part01  numberOfNodes=1  steps=1
+→ {"data": "Batch started"}
+
+$ docker exec cluster sacct -a -X --format=JobID,JobName,Partition,State,ExitCode,Elapsed
+3  echo-hell+  part01  COMPLETED  0:0  00:00:30
+
+GET /list_jobs → jobid 3, name echo-hello-client_1, state COMPLETED
+
+GET /utilities/view?targetPath=/home/service-account-firecrest-sample/firecrest/<task>/job-3.out
+→ "echo-hello-client_1 started on Fri Sep 11 15:25:28 UTC 2026
+   echo-hello-client_1 finished on Fri Sep 11 15:25:58 UTC 2026"
+```
+
+This also confirms that the client's pinned `pyfirecrest` **1.5.1** talks to this API
+revision successfully — worth knowing, because it is the version the bundled client ships and
+it is far behind the current 3.x line.
+
 ## 5. Blocker encountered and resolved
 
 ### Symptom
@@ -164,13 +188,16 @@ unacceptable workaround for a three-command fix.
 
 ## 6. Declared deviations from the prompt
 
-1. **The bundled demo client application was not used directly.** The Flask demo client is
-   documented at `localhost:7000`, but that port is **not published** in this revision of
-   `deploy/demo/docker-compose.yml` — only Kong's `8000` is. The job was therefore submitted
-   through the gateway using the bundled client's own credentials
-   (`firecrest-sample`, from `deploy/demo/demo_client/client_secrets.json`). This is the same
-   request path the MCP wrapper in prompt 02 will take, but it is not literally the demo
-   client's own UI workflow.
+1. ~~**The bundled demo client application was not used directly.**~~ **Resolved.** The
+   deviation was real and has since been closed: the job was re-submitted through the
+   bundled demo client itself. The confusion was that the client's documented location is
+   wrong — `deploy/demo/README.md` points at `src/tests/template_client/`, which no longer
+   exists upstream, and the demo README advertises a web client on port 7000 that no compose
+   service publishes. The actual client is `examples/UI-client-credentials/` (Flask +
+   SocketIO, default port 9090, `pyfirecrest` 1.5.1), and it works against this API revision.
+   Job 3 in §4 above was submitted through it. The initial submission via the gateway using
+   the bundled client's own credentials was a valid but weaker form of verification; the
+   stronger form is now also on record. Details: `docs/hot-cache.md` §10.
 2. **SELinux labels inside the `firecrest` clone were changed** (`deploy/demo`,
    `deploy/test-build/environment/keys`, `doc/openapi`). Prompt 01 step 6 forbids modifying
    the clone. File *contents* are untouched and the clone's `git status` is clean, but this
@@ -276,13 +303,29 @@ other `/utilities/*` tools.
 - The stack's first build compiles Slurm inside the `cluster` image and takes 10–20 minutes.
   Rehearse from a warm image cache, and never rebuild on demo day.
 
+### 7.6 Upstream documentation points at paths that no longer exist
+
+Three separate references in this revision send a reader to the wrong place:
+
+- `deploy/demo/README.md` says the client source is at `src/tests/template_client/`. That
+  directory does not exist; only `src/tests/automated_tests` remains.
+- The same README says the demo web client is at `localhost:7000`. No service in
+  `deploy/demo/docker-compose.yml` publishes that port, and none is a client at all.
+- `README.md` and `ARCHITECTURE.md` describe the API as v2 while the shipped spec is v1.16.1
+  (§7.1).
+
+None of these are fatal, but each costs a reader time, and all three land in the first hour of
+trying to reproduce the build. Worth reporting upstream.
+
 ## 8. Artefacts produced
 
 | Artefact | Location |
 |---|---|
-| Verified call shortlist (raw curl + observed responses) | `docs/hot-cache.md` |
+| Verified call shortlist (raw curl + observed responses), incl. §10 on the bundled client | `docs/hot-cache.md` |
 | This report | `docs/reports/01-firecrest-demo-stack.md` |
-| End-to-end job flow script | `/tmp/f7t_flow.py` (host-local, reproducible) |
+| Job flow script (token → submit → poll → stdout) | `/tmp/f7t_flow.py` |
+| Bundled demo client, built and configured for the local stack | `/tmp/f7t-demo-client` (`firecrest-live` image, container on `:9100`) |
+| Reusable bring-up procedure and pitfalls | skill `firecrest-demo-stack` |
 
 ## 9. Next step
 
