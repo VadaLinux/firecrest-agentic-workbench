@@ -14,7 +14,28 @@ and verified; nothing here is paraphrased from documentation.
 > Note: the repo README and `ARCHITECTURE.md` refer to "the FirecREST v2 OpenAPI spec".
 > The spec actually shipped in this demo revision is **v1.16.1**, and the endpoints differ
 > (`X-Machine-Name` header rather than a `{system}` path segment). Trust this file over the
-> prose until upstream is re-checked.
+> prose.
+>
+> **Upstream re-checked (2026-09-12): the discrepancy is real and has a direction.**
+> CSCS's own documentation states, on `access/firecrest.md`, that "FirecREST version 1 was
+> decommissioned on Alps on December 5th, 2025", and that **version 2** is what is provided
+> on Alps. Production endpoints are v2 throughout —
+> `https://api.cscs.ch/hpc/firecrest/v2` (Daint, Eiger), `/ml/firecrest/v2` (Bristen,
+> Clariden), `/cw/firecrest/v2` (Santis), `/beverin/firecrest/v2` — and are addressed by URL
+> rather than by the `X-Machine-Name` header.
+>
+> So the split is: **this demo stack is v1.16.1 and is what CSCS ships for learning, while
+> production Alps is v2.** Everything in this file remains correct *for the demo*, and none
+> of it should be presented as current production behaviour. A v2 path is required for the
+> wrapper to be usable against real Alps; see the open question carried in
+> `reports/02-firecrest-mcp-wrapper.md` and `reports/03-metamcp-setup.md`, which this
+> resolves.
+>
+> One upstream inconsistency worth knowing: `access/firecrest.md` says v1 was
+> *decommissioned* on 2025-12-05, while the cluster pages (`clusters/daint.md`,
+> `clusters/eiger.md`, `clusters/santis.md`) still say "The FirecREST v1 API is still
+> available, but deprecated". The decommission notice is the more specific and later
+> statement, so it is the one treated as authoritative here.
 
 ## 0. Two things that cause almost every failure
 
