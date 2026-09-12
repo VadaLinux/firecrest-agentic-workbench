@@ -123,7 +123,20 @@ if [ -f "$OPENROUTER_ENV" ] && grep -q '^OPENROUTER_API_KEY=.\+' "$OPENROUTER_EN
     # Model is read from the same file so it can be changed without touching this script.
     DOCMIND_LLM_MODEL="${DOCMIND_LLM_MODEL:-$(grep '^OPENROUTER_LLM_MODEL=' "$OPENROUTER_ENV" | head -1 | cut -d= -f2-)}"
     export DOCMIND_LLM_BACKEND_CHOICE="${DOCMIND_LLM_BACKEND_CHOICE:-openai_compatible}"
-    export DOCMIND_LLM_MODEL="${DOCMIND_LLM_MODEL:-anthropic/claude-3.5-haiku}"
+    # Free by default: the credit on this key is small, and a free instructed model with a
+    # large context is enough for grounded synthesis. Override with OPENROUTER_LLM_MODEL in
+    # ~/.hermes/.env to use a paid one.
+    #
+    # Model choice here is empirical, not theoretical: most popular :free models on
+    # OpenRouter answer 429 ("temporarily rate-limited upstream ... shared_pool") because
+    # everyone shares the upstream provider's quota. gemma-4-*:free and openrouter/free
+    # were consistently 429; the nvidia nemotron :free models answered. Verify a candidate
+    # with a one-line curl before wiring it in.
+    #
+    # Free models are also capped per minute, so a long agent run can hit the limit —
+    # switch to a paid model (e.g. meta-llama/llama-3.3-70b-instruct, ~$0.10/M in, roughly
+    # $0.0005 per query) when that becomes a problem.
+    export DOCMIND_LLM_MODEL="${DOCMIND_LLM_MODEL:-nvidia/nemotron-3-super-120b-a12b:free}"
     log "DocMind synthesis: OpenRouter (model $DOCMIND_LLM_MODEL)"
 else
     log "DocMind synthesis: local Ollama (no OPENROUTER_API_KEY in $OPENROUTER_ENV)"
