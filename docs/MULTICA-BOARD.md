@@ -91,10 +91,27 @@ ingestion dies. Fix: fetch on the host, bind-mount read-only.
   nice=10 so the laptop stays usable. Do not start another heavy agent run
   concurrently.
 
-## Verification pending (do after ingestion)
+## Verification (completed)
 
-1. Confirm a new snapshot activated (`multica`/DocMind `current_snapshot_id`).
-2. Query `query_docs` on the Apertus tool-use question — the expected answer is that
-   the `-thinking` variants have tool use disabled, per `services/inference/api.md`.
-3. Apply the DuckDB mount (above).
-4. Start `VDLP-1` for Mika.
+1. **Snapshot activated.** `CURRENT` = `20260912T132750-7da055f1`; text collection
+   `docmind_docs__e189656a0ff849f4a2201807d6ac7efd` holds **372 vectors** (the old
+   4-file corpus had 33). Ingestion took **10,660 s (~2h58m)** — far longer than the
+   ~90 min first estimated; DocMind parses and embeds everything before writing to
+   Qdrant in one batch, so no vectors are visible until the very end.
+2. **The acid test passes.** Asked `query_docs` the exact question the Chief of Staff
+   agent had answered wrongly from memory ("which Apertus variants are served without
+   tool support"). It answered correctly — the `-thinking` variants, with the verbatim
+   error message — citing `services__inference__api.md` three times. This is the
+   retrieval-vs-recall case, closed.
+3. **DuckDB mount applied.** The `app` container was recreated from the updated
+   override; the json extension is bound read-only, loads locally (`json_valid` OK),
+   and the snapshot and vectors survived the recreate.
+4. **`VDLP-1` started for Mika.** Runs on the Claude Code runtime with
+   `mcpServers: {"docmind-readonly": {"url": "http://localhost:8770/mcp"}}` and is
+   calling `query_docs` (confirmed in the `docmind-mcp` access log).
+
+### Operational note: starting an agent run
+
+`multica issue assign <id> --to Mika` assigns ownership but does **not** enqueue a run.
+Use `multica issue rerun <id>` to enqueue one, then `multica issue runs <id>` to watch
+it. A run only appears in `runs` once the daemon has woken the agent.
