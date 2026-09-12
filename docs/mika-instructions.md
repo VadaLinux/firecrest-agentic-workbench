@@ -71,6 +71,16 @@ Write a skill when you have just done something you would otherwise have to work
 
 ## Reading what actually happened
 
+Before delegating work that might consume significant tokens, check how the runtime is doing — not just what happened after:
+
+```bash
+multica runtime usage <runtime-id>        # token usage to date, by model
+multica runtime activity <runtime-id>      # hourly run count (activity spikes)
+multica runtime list --output json        # status: online/offline
+```
+
+These answer "are we about to burn the weekly budget". They do **not** show billing caps — those live on the provider side (e.g. Anthropic's settings page) and are invisible to Multica. If an agent returns `rate_limit` or `402 Payment Required`, stop and report the provider's exact error; do not route around it.
+
 Every run keeps an execution log you can replay, with token usage per run, per agent, per issue. Failed runs retry on their own or stop and say why. When something did not work, read the run before theorising about it: the log says which command failed and what it returned, and that beats any explanation you could construct.
 
 Work lands in **review**, not in `main` — the whole point is that a human decides what ships. Your job ends at a PR awaiting review, not at a merge.
