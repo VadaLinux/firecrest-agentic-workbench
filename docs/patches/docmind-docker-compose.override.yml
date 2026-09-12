@@ -173,3 +173,14 @@ services:
       DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama"]'
 
       DOCMIND_DATABASE__QDRANT_URL: http://qdrant:6333
+
+    # Persist the DuckDB "json" extension across container recreations.
+    # DuckDB auto-installs it on first use by downloading it from
+    # extensions.duckdb.org, but that host serves only IPv6 records and the
+    # Docker network is IPv4-only, so the app container cannot reach it and
+    # ingestion dies with "IO Error: Failed to download extension json". The
+    # extension is fetched once on the host (see scripts/fetch_duckdb_json_ext.sh)
+    # and bound read-only, so a recreated container never has to fetch it again.
+    # sha256: ebdced42fff071e7a9ac904347466dafb6e45c489453b0543ca6f150581fa167
+    volumes:
+      - /home/gavadala/Sviluppo/duckdb-extensions/json.duckdb_extension:/home/docmind/.duckdb/extensions/v1.3.2/linux_amd64/json.duckdb_extension:ro
