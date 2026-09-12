@@ -1,0 +1,32 @@
+[Unit]
+Description=Bring up the FirecREST Agentic Workbench demo stacks
+Documentation=https://github.com/VadaLinux76/firecrest-agentic-workbench/blob/main/docs/HANDOVER.md
+# USER unit, deliberately — not a system unit.
+#
+# Everything this needs to execute lives under the user's home: the bring-up script, and
+# the docker/compose projects it drives. Under SELinux, a system unit runs as init_t and
+# is denied both `execute` on `user_home_t` files and `read` on them, so every system-unit
+# variant fails at exec with status=203/EXEC / "Permission denied":
+#
+#     avc: denied { execute } scontext=system_u:system_r:init_t:s0
+#                            tcontext=unconfined_u:object_r:user_home_t:s0
+#
+# Relabelling the home tree is not a fix: the whole virtualenv and its libraries would
+# need it, and `restorecon` would undo it. A user unit runs in the user's own domain,
+# which is allowed to execute what the user owns. `loginctl enable-linger gavadala` makes
+# it start at boot without a login.
+After=default.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=%h/Sviluppo/firecrest-agentic-workbench/scripts/workbench-up.sh
+# First boot after a long shutdown can take a while: the demo stack has 15 containers and
+# the cluster container may rebuild. Generous, because a timeout here would leave the
+# workstation half-up with no obvious signal.
+TimeoutStartSec=900
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

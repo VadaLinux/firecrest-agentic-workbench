@@ -43,24 +43,82 @@ firecrest__submit_job
 
 ## Bringing it all back up
 
-Docker starts at boot, but **no compose file in this project has a restart policy**, and
-MetaMCP's `app` service is explicitly `restart: "no"`. After a reboot, nothing comes
-back on its own. In order:
+**This is now automatic.** Two systemd *user* units bring everything up at boot, without
+a login, via `loginctl enable-linger gavadala`:
+
+| Unit | Scope | Role |
+|---|---|---|
+| `firecrest-workbench-stacks.service` | user | oneshot; runs `scripts/workbench-up.sh` |
+| `firecrest-mcp.service` | user | long-lived; the wrapper process, `Restart=always` |
 
 ```bash
-# 1. FirecREST demo stack
+systemctl --user status firecrest-workbench-stacks firecrest-mcp
+systemctl --user restart firecrest-mcp            # after editing the wrapper
+journalctl --user -u firecrest-workbench-stacks   # what the boot bring-up did
+./scripts/workbench-up.sh --status                # what is up right now
+```
+
+They are user units **because they have to be, not by preference**. Everything they
+execute lives under the user's home, and under SELinux a *system* unit runs as `init_t`,
+which is denied both `execute` and `read` on `user_home_t`:
+
+```
+avc: denied { execute } scontext=system_u:system_r:init_t:s0
+                       tcontext=unconfined_u:object_r:user_home_t:s0
+           name="workbench-up.sh"
+avc: denied { read }    ... name="python" tclass=lnk_file
+```
+
+The system-unit variant fails with `status=203/EXEC` and `Permission denied`, which
+reads as a filesystem permission problem and is not one. Relabelling is not a fix: the
+whole virtualenv and its libraries would need it, and `restorecon` would undo it. A user
+unit runs in the user's own domain, allowed to execute what the user owns — the same
+reason `hermes-gateway.service` on this machine is a user unit.
+
+One consequence worth knowing: a user unit's process may not have the `docker` group in
+its group set if the membership was added after the session that owns the user manager
+was created. `scripts/workbench-up.sh` detects this and falls back to `sg docker -c`,
+the same workaround used by hand everywhere else in this project.
+
+The units are versioned in `systemd/` in this repo — the copies in
+`~/.config/systemd/user/` are installed from there.
+
+### The manual fallback
+
+The restart policies still differ per project, and knowing which is which saves time in
+both directions — assuming things come back when they do not, or restarting what is
+already healthy.
+
+| Project | Policy | After a reboot |
+|---|---|---|
+| DocMind (`app`, `ollama`, `qdrant`, `docmind-mcp`) | `restart: unless-stopped` | **comes back on its own** |
+| MetaMCP `postgres` | `restart: unless-stopped` | comes back |
+| MetaMCP `app` | `restart: "no"` | **stays down** |
+| FirecREST demo stack (15 services) | no restart policy | **all stay down** |
+| `firecrest-mcp` | not a container at all — the user unit owns it | **stays down without the unit** |
+
+Confirmed by a real reboot on 2026-09-12: DocMind and `metamcp-pg` came up unattended;
+all fifteen demo-stack containers, MetaMCP, and the `firecrest-mcp` process did not —
+the last of which is what the units above now fix. If the units are ever missing or
+disabled, bring up only what is not already running:
+
+```bash
+# 1. FirecREST demo stack (15 services; the cluster container is the slow one)
 cd ~/Sviluppo/firecrest/deploy/demo && sg docker -c "docker compose up -d"
 
 # 2. MetaMCP
 cd ~/Sviluppo/metamcp && sg docker -c "docker compose up -d"
 
-# 3. DocMind (app, ollama, qdrant, docmind-mcp)
+# 3. DocMind — only if it did not already self-start
 cd ~/Sviluppo/docmind-ai-llm && sg docker -c "docker compose up -d"
 
-# 4. firecrest-mcp wrapper — HTTP mode
-cd ~/Sviluppo/firecrest-agentic-workbench/firecrest-mcp
-sg docker -c "docker run -d ..."   # see docs/reports/02-*.md for the exact invocation
+# 4. firecrest-mcp — a host process, not a container.
+systemctl --user start firecrest-mcp
 ```
+
+Step 4 is the one most easily forgotten, and its absence presents as a MetaMCP tool list
+missing its five FirecREST tools — a symptom that points at MetaMCP rather than at the
+missing process.
 
 `~/Sviluppo/docmind-ai-llm/docker-compose.override.yml` is a **copy** of
 `docs/patches/docmind-docker-compose.override.yml` in this repo. The repo copy is the

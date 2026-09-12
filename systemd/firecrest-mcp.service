@@ -1,0 +1,26 @@
+[Unit]
+Description=FirecREST MCP server (Streamable HTTP, port 8765)
+Documentation=https://github.com/VadaLinux76/firecrest-agentic-workbench
+# USER unit — see firecrest-workbench-stacks.service for why a system unit cannot work
+# here: the virtualenv this executes lives under the user's home, and a system unit's
+# init_t domain is denied execute and read on user_home_t.
+#
+# This is the one component of the workbench that is not a container, so no restart policy
+# anywhere can bring it back. Without this unit it silently disappears on every reboot,
+# and its absence presents as MetaMCP serving only docmind__query_docs instead of six
+# tools — a symptom that points at MetaMCP rather than at the missing process.
+After=default.target firecrest-workbench-stacks.service
+Wants=firecrest-workbench-stacks.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Sviluppo/firecrest-agentic-workbench/firecrest-mcp
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/.venv/bin/python \
+    server.py --transport http --host 0.0.0.0 --port 8765
+# The server is long-lived and cheap to restart; a crash should not need a human.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
