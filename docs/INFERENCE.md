@@ -22,9 +22,22 @@ CSCS already runs its own **LLM Inference API Service** — an OpenAI/Anthropic-
 DOCMIND_LLM_BACKEND=openai_compatible
 DOCMIND_OPENAI__BASE_URL=https://api.inference.cscs.ch/v1
 DOCMIND_OPENAI__API_KEY=<CSCS_INFERENCE_API_KEY>
-DOCMIND_LLM_REQUEST__MODEL=apertus-70b   # or the smaller Apertus-8B variant
+DOCMIND_LLM_REQUEST__MODEL=swiss-ai/Apertus-v1.5-70B
 DOCMIND_SECURITY__ALLOW_REMOTE_ENDPOINTS=true
 ```
+
+Model IDs are exact — they come from the service's own `/v1/models` listing, not from prose.
+Verified against <https://docs.cscs.ch/services/inference/api/>:
+`swiss-ai/Apertus-v1.5-70B`, `swiss-ai/Apertus-8B-Instruct-2509`,
+`swiss-ai/Apertus-70B-Instruct-2509`, `google/gemma-4-31B-it`,
+`moonshotai/Kimi-K2.7-Code`, `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`,
+`zai-org/GLM-5.2`. An earlier draft of this document used a shorthand
+`apertus-70b` that does not resolve to anything.
+
+**Do not use the `-thinking` variants for anything that calls tools.** CSCS documents that
+they are served with tool use disabled, and that attempting it produces
+`"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set`.
+DocMind's synthesis needs no tools, so it is unaffected — but the agent is not.
 
 Same DocMind deployment, same agent, same MCP wrapper — the model call is the only thing that moves off the laptop.
 

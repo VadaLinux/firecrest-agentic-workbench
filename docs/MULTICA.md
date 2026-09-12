@@ -64,7 +64,7 @@ consumer**, and it swaps the same way — a user-defined alias pointing at a `cu
 ```yaml
 model_aliases:
   apertus:
-    model: apertus-70b          # or the smaller Apertus-8B variant
+    model: swiss-ai/Apertus-v1.5-70B   # exact ID from the service's /v1/models
     provider: custom
     base_url: "https://api.inference.cscs.ch/v1"
     key_env: CSCS_INFERENCE_API_KEY
@@ -72,6 +72,61 @@ model_aliases:
 
 `/model apertus` and the agent reasons on CSCS's own open model. No code change, no fork, no
 adapter.
+
+**Two corrections to how this was first written.** The model ID must be exact —
+`swiss-ai/Apertus-v1.5-70B`, or `swiss-ai/Apertus-70B-Instruct-2509`; an earlier draft used a
+shorthand `apertus-70b` that resolves to nothing. And the `-thinking` variants are served
+**with tool use disabled**, which is disqualifying for an agent whose entire job is calling
+MCP tools. DocMind's synthesis needs no tools and is unaffected.
+
+For the agent specifically, CSCS's own coding-agent examples point at
+`moonshotai/Kimi-K2.7-Code`, and their inference docs note Apertus is "optimized for general
+use rather than programming tasks specifically". That is a real signal, not a footnote: the
+sovereignty argument survives either way — both are open-weight models served inside CSCS —
+but the honest configuration is likely **Apertus for retrieval synthesis, a code-specialised
+open model for the agent**, rather than one model stretched across two different jobs.
+
+## CSCS already documents this architecture, and it is one of the three they recommend
+
+The single strongest thing we can say about this design is not ours to claim. CSCS maintains
+a page, [Using coding agents on
+Alps](https://docs.cscs.ch/guides/coding-agents/), which lists three ways to run an agent
+against Alps. The third:
+
+> running the agent locally and submitting jobs over SSH and Slurm or **via FirecREST**
+
+That is our architecture, named by CSCS, with FirecREST called out. The same page recommends
+against running agents on login nodes and suggests *"running agents either on compute nodes
+or on your local computer with limited Slurm or FirecREST jobs allowed"* — again, the pattern
+this project uses.
+
+Three further points from that page, each of which we should address directly rather than
+let a reviewer raise first:
+
+- **They name the open problem we are working on.** *"Sandboxing agents is effective for the
+  agent process and its tool calls on the particular node... When an agent submits a Slurm
+  job, the restrictions of the sandbox are typically not propagated to the compute nodes.
+  **We are investigating alternatives for improving the integration with Slurm.**"* A local
+  agent driving FirecREST has no sandbox expectations to break, because nothing of the
+  agent's runs on the cluster. That is a genuine, quotable answer to a stated CSCS concern.
+- **They name the governance risk.** Compute spent by agent-launched jobs is billed to the
+  project, and *"coding agents may inadvertently submit many jobs, consume node hours, or
+  modify files in unintended ways"*, with CSCS taking no responsibility. **Multica's review
+  gate is the answer to exactly this**: work lands in review rather than in `main`, and a
+  human approves before it ships. The orchestration layer is not decoration — it is the
+  control CSCS is asking for.
+- **They invite contributions.** *"We encourage and welcome contributions from the CSCS user
+  community on best practices on using coding agents... contribute directly to the
+  documentation."* That is a concrete, low-cost way for this project to give something back,
+  independent of whether it ships: the operational findings from prompts 01–04 — the
+  FirecREST v1/v2 spec discrepancy, the ingestion constraints, the inference budget that
+  silently clamps — belong on that page.
+
+Also worth knowing before the day: the inference service is *"currently offered from a single
+infrastructure"* and *"interruptions of the service should be expected"*, and it does not
+distinguish cached from uncached input tokens, with an explicit warning to *"beware the costs
+when performing typical agentic usage."* Both are reasons the local-first fallback stays in
+the design rather than being replaced by the CSCS endpoint outright.
 
 Why this is the strongest single argument in the project:
 
