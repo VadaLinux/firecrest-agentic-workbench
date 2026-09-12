@@ -55,21 +55,23 @@ generated `/tmp/multica-mcp-*/mcp-config.json` during a run.
 
 ## Documentation project: `~/Sviluppo/cscs-knowledge`
 
-A citation-grounded reference on how CSCS/Alps work, maintained by agents. Committed
-locally as git repo `fe244a4` (branch, no remote yet — `gh` not authenticated).
+A citation-grounded reference on how CSCS/Alps work, maintained by agents. Now pushed to
+**`github.com/VadaLinux76/cscs-knowledge`** (private, default branch `main`) — so an agent
+can `multica repo checkout` it and deliver via PR instead of writing in place. `gh` is
+authenticated as `VadaLinux76` and is already git's credential helper, so clone/push work
+without further setup.
+
+Populated by Mika in one run: 7 sections, 224 lines, 96 citations, 8 `[unverified]`
+markers, one commit per section. See issue `VDLP-1` (`in_review`).
 
 - `AGENTS.md` — the contract: source-of-truth hierarchy
   (hot-cache > `query_docs` > `[unverified]`), citation rules, one-sentence-per-line,
   sentence-case headings, `## Known issues` convention.
 - `sources.md` — index of sources and how to cite them.
-- `sections/` — seven stub pages awaiting population.
+- `sections/` — seven pages, populated from `query_docs`.
 - **Issue `VDLP-1`** (`01a0953b-c27c-70cd-af9d-dbd81a747e1c`): "Populate the CSCS
-  knowledge base from query_docs", assigned to Mika, status **todo, not started**.
-  Start it with:
-  ```bash
-  multica issue assign 01a0953b-c27c-70cd-af9d-dbd81a747e1c --to Mika
-  ```
-  Deferred so Mika does not contend with the corpus ingestion for CPU.
+  knowledge base from query_docs" — delivered by Mika, status **`in_review`**, awaiting
+  human acceptance (`done` stays a human call).
 
 ## CSCS documentation corpus ingestion
 
