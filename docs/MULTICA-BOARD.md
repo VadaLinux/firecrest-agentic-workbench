@@ -30,6 +30,29 @@ exact commands to resume.
 construction — it is the right endpoint for a conversational agent. `Operator` gets
 the full MetaMCP endpoint; `Mika` gets only the read-only one.
 
+### Gotcha: a workspace MCP server entry needs `"type": "http"`
+
+The server entry stored in the workspace library is passed through **verbatim** to the
+provider inside `mcpServers`. Claude Code requires an explicit transport type for a
+remote server, so the entry must be:
+
+```json
+{"type": "http", "url": "http://localhost:8770/mcp"}
+```
+
+Omitting `"type"` makes Claude Code assume **stdio**, find no `command`, fail to start
+the server, and expose no tools at all — silently. The run then proceeds with no MCP
+tools and no error the operator ever sees; Mika's first documentation run reported
+`query_docs` "isn't wired into this runtime as a tool" and worked around it by calling
+the endpoint with curl, which looked like resourcefulness rather than a broken binding.
+
+Verified both ways: with the same config, `claude -p ... --strict-mcp-config
+--mcp-config <file>` answers `NONE` without `"type"` and `mcp__docmind-readonly__query_docs`
+with it. After fixing the library entry, Mika confirmed the tool was present.
+
+When adding any future HTTP MCP server here, set `type` explicitly and confirm the
+generated `/tmp/multica-mcp-*/mcp-config.json` during a run.
+
 ## Documentation project: `~/Sviluppo/cscs-knowledge`
 
 A citation-grounded reference on how CSCS/Alps work, maintained by agents. Committed
