@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Re-ingest the full DocMind corpus: CSCS docs + FirecREST v2 docs.
+# Re-ingest the full DocMind corpus: CSCS docs + FirecREST v2 docs + job logs.
 #
 # Run by firecrest-reingest.service (a systemd user timer), not by hand, though it
 # works by hand too. It is written to be the whole job: build the corpus, stage it
@@ -25,6 +25,13 @@ REPO="${REPO:-/home/gavadala/Sviluppo/firecrest-agentic-workbench}"
 CSCS_DOCS="${CSCS_DOCS:-/home/gavadala/Sviluppo/cscs-docs/docs}"
 V2_DOCS="${V2_DOCS:-/home/gavadala/Sviluppo/firecrest-v2-src/docs}"
 V2_SPEC="${V2_SPEC:-/home/gavadala/Sviluppo/firecrest-v2-corpus/openapi.json}"
+# Job logs written by firecrest-mcp's get_job_log. AGENTS.md names this directory as
+# what DocMind ingests for the failure-scenario demo, but this script had no source
+# pointing at it, so neither a manual run nor the timer ever picked a log up. The
+# `.log` suffix is renamed to `.txt` by build_corpus.py; byte-identical logs (the
+# trivial `hello` submissions) are dropped by its content dedup rather than
+# hard-erroring the way docmind_ingest.py does.
+LOGS="${LOGS:-$REPO/firecrest-mcp/logs}"
 STAGE="${STAGE:-/home/gavadala/Sviluppo/docmind-corpus-full}"
 CONTAINER="${CONTAINER:-docmind-ai-llm-app-1}"
 RESULT_FILE="${RESULT_FILE:-/home/gavadala/Sviluppo/docmind-corpus-full.result.json}"
@@ -46,6 +53,9 @@ log "--- 1/5 building the corpus"
 [ -d "$V2_DOCS" ]   || die "corpus" "v2 docs not found at $V2_DOCS"
 
 SOURCES=("$CSCS_DOCS:docs" "$V2_DOCS:v2docs")
+# Job logs are optional: a fresh checkout has none. Include them when the directory
+# is there so the timer picks up whatever get_job_log has written since.
+[ -d "$LOGS" ] && SOURCES+=("$LOGS:joblogs")
 # The v2 OpenAPI spec is optional but valuable; include it when present.
 if [ -f "$V2_SPEC" ]; then
     cp -f "$V2_SPEC" "$V2_DOCS/firecrest-v2-openapi.json" 2>/dev/null || true
