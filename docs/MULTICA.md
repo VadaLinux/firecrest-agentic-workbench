@@ -86,6 +86,14 @@ sovereignty argument survives either way — both are open-weight models served 
 but the honest configuration is likely **Apertus for retrieval synthesis, a code-specialised
 open model for the agent**, rather than one model stretched across two different jobs.
 
+**A recorded case of getting this wrong is in
+[`docs/examples/retrieval-vs-recall.md`](./examples/retrieval-vs-recall.md).** The
+workspace's own Chief of Staff agent, asked about Apertus tool support with no retrieval
+available, produced a confident and well-structured answer that named the wrong
+discriminator, described checkpoints the service does not serve, and would have ruled out
+the model that actually works. It is kept because it is the evidence for giving the
+conversational agent a read-only view of the corpus — and because it happened unprompted.
+
 ## CSCS already documents this architecture, and it is one of the three they recommend
 
 The single strongest thing we can say about this design is not ours to claim. CSCS maintains
