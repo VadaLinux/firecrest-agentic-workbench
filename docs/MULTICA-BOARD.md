@@ -64,6 +64,38 @@ without further setup.
 Populated by Mika in one run: 7 sections, 224 lines, 96 citations, 8 `[unverified]`
 markers, one commit per section. See issue `VDLP-1` (`in_review`).
 
+### The PR flow, verified end to end
+
+Mika's first run wrote straight into the working copy because the repo had no remote.
+With the repo on GitHub, the loop is now:
+
+```
+Multica project "CSCS knowledge base" (1aae6057-9292-4b68-a77e-985766e835c9)
+  resources: github_repo → cscs-knowledge
+             github_repo → firecrest-agentic-workbench   (so docs/hot-cache.md is
+                                                          readable directly, and does
+                                                          not have to be reached
+                                                          through citations)
+  description: the durable brief — source hierarchy, citation rules, PR convention
+       ↓
+  issue in the project → run gets the repo checked out
+       ↓
+  agent branch → PR with the issue key in the title AND branch
+       ↓
+  merged
+```
+
+Verified with `VDLP-2`: Mika checked the repo out on `agent/mika/<task>`, worked on
+`vdlp-2-firecrest-page`, opened PR #1 titled `VDLP-2: add dedicated FirecREST page`,
+and the merge landed as `68feb48`. The issue key in the title or branch is what lets
+Multica link the PR to the issue.
+
+The knowledge base is now 8 sections, 296 lines, 126 citations.
+
+**Note:** adding both repos means every task in the project sees both. That is
+deliberate — the hot cache has precedence over retrieval, so it should be readable as
+a file rather than reached through the RAG's own index.
+
 - `AGENTS.md` — the contract: source-of-truth hierarchy
   (hot-cache > `query_docs` > `[unverified]`), citation rules, one-sentence-per-line,
   sentence-case headings, `## Known issues` convention.
