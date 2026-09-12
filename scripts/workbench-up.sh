@@ -105,6 +105,30 @@ docker info >/dev/null 2>&1 || fail "docker daemon not reachable after 60s"
 
 compose_up "FirecREST demo stack" "$FIREREST_DEMO"
 compose_up "MetaMCP" "$METAMCP_DIR"
+
+# DocMind's synthesis backend is selectable (see the compose override). The local Ollama
+# model takes ~290s per answer on this CPU-only host, which makes a multi-query agent run
+# unusable, so when an OpenRouter key is available synthesis is pointed at it. Embeddings
+# stay local either way — moving them would invalidate the ingested corpus and force a
+# full re-ingest.
+#
+# The key lives in ~/.hermes/.env, which Docker Compose does not read: compose only loads
+# <project>/.env. It is bridged into the environment here instead, so the stack picks it
+# up both at boot and by hand. Without a key the override falls back to the local model
+# and everything still works, just slowly.
+OPENROUTER_ENV="${OPENROUTER_ENV:-$HOME/.hermes/.env}"
+if [ -f "$OPENROUTER_ENV" ] && grep -q '^OPENROUTER_API_KEY=.\+' "$OPENROUTER_ENV"; then
+    OPENROUTER_API_KEY="$(grep '^OPENROUTER_API_KEY=' "$OPENROUTER_ENV" | head -1 | cut -d= -f2-)"
+    export OPENROUTER_API_KEY
+    # Model is read from the same file so it can be changed without touching this script.
+    DOCMIND_LLM_MODEL="${DOCMIND_LLM_MODEL:-$(grep '^OPENROUTER_LLM_MODEL=' "$OPENROUTER_ENV" | head -1 | cut -d= -f2-)}"
+    export DOCMIND_LLM_BACKEND_CHOICE="${DOCMIND_LLM_BACKEND_CHOICE:-openai_compatible}"
+    export DOCMIND_LLM_MODEL="${DOCMIND_LLM_MODEL:-anthropic/claude-3.5-haiku}"
+    log "DocMind synthesis: OpenRouter (model $DOCMIND_LLM_MODEL)"
+else
+    log "DocMind synthesis: local Ollama (no OPENROUTER_API_KEY in $OPENROUTER_ENV)"
+fi
+
 compose_up "DocMind" "$DOCMIND_DIR"
 
 # firecrest-mcp: a host process. The systemd unit owns its lifecycle, so here we only

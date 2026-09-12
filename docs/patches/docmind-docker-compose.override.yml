@@ -104,12 +104,24 @@ services:
     ports:
       - "8770:8770"
     environment:
-      DOCMIND_LLM_BACKEND: ollama
-      DOCMIND_LLM_REQUEST__MODEL: qwen3:4b-instruct
+      # LLM backend, selectable. Defaults to the local Ollama model so the stack
+      # still works with no external key present (e.g. after a reboot); workbench-up.sh
+      # exports DOCMIND_LLM_BACKEND_CHOICE=openai_compatible when it finds an
+      # OPENROUTER_API_KEY in ~/.hermes/.env. The heavy work here is *synthesis*, and on
+      # this CPU-only host the local model takes ~290s per answer, which is what makes a
+      # run of several doc queries unusable. Embeddings are unaffected and stay local —
+      # changing them would invalidate the ingested corpus and require a re-ingest.
+      DOCMIND_LLM_BACKEND: ${DOCMIND_LLM_BACKEND_CHOICE:-ollama}
+      DOCMIND_LLM_REQUEST__MODEL: ${DOCMIND_LLM_MODEL:-qwen3:4b-instruct}
       DOCMIND_OLLAMA_BASE_URL: http://ollama:11434
+      # OpenRouter is OpenAI-compatible, so it rides the openai_compatible backend.
+      # The key is interpolated from the environment at `docker compose` time and never
+      # written into this file, which is committed.
+      DOCMIND_OPENAI__BASE_URL: ${DOCMIND_OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      DOCMIND_OPENAI__API_KEY: ${OPENROUTER_API_KEY:-}
       DOCMIND_DATABASE__QDRANT_URL: http://qdrant:6333
       DOCMIND_SECURITY__ALLOW_REMOTE_ENDPOINTS: "true"
-      DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama"]'
+      DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama","https://openrouter.ai"]'
       DOCMIND_ENABLE_GPU_ACCELERATION: "false"
       # Same inference budget as `app`, for the same reasons — see note 4 above.
       DOCMIND_LLM_REQUEST__CONTEXT_WINDOW: "16384"
@@ -151,8 +163,10 @@ services:
 
   app:
     environment:
-      DOCMIND_LLM_BACKEND: ollama
-      DOCMIND_LLM_REQUEST__MODEL: qwen3:4b-instruct
+      # See the docmind-mcp block above for why the backend is selectable and why
+      # synthesis may be moved to OpenRouter while embeddings stay local.
+      DOCMIND_LLM_BACKEND: ${DOCMIND_LLM_BACKEND_CHOICE:-ollama}
+      DOCMIND_LLM_REQUEST__MODEL: ${DOCMIND_LLM_MODEL:-qwen3:4b-instruct}
       DOCMIND_OLLAMA_BASE_URL: http://ollama:11434
 
       # Inference budget for CPU-only inference. See note 4 above.
@@ -168,9 +182,15 @@ services:
       CUDA_VISIBLE_DEVICES: ""
 
       # Keep remote-endpoint policy as upstream sets it: compose service hostnames
-      # resolve to private addresses and are on the allowlist explicitly.
+      # resolve to private addresses and are on the allowlist explicitly. OpenRouter is
+      # added for the same reason — it is an intentional external endpoint, not an
+      # implicit egress.
       DOCMIND_SECURITY__ALLOW_REMOTE_ENDPOINTS: "true"
-      DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama"]'
+      DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama","https://openrouter.ai"]'
+      # OpenRouter rides the openai_compatible backend. Key interpolated at compose time
+      # from the environment, never stored in this committed file.
+      DOCMIND_OPENAI__BASE_URL: ${DOCMIND_OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      DOCMIND_OPENAI__API_KEY: ${OPENROUTER_API_KEY:-}
 
       DOCMIND_DATABASE__QDRANT_URL: http://qdrant:6333
 
