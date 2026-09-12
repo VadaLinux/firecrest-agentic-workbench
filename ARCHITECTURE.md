@@ -41,11 +41,28 @@ A single curated markdown file (`docs/hot-cache.md`, generated during prep, not 
 
 ### Multica
 
-Self-hosted board. An "agent" (Hermes, pointed at the MetaMCP endpoint) is added as a teammate with access scoped to this repo/project. Issues describe HPC tasks in plain language; Hermes picks them up, works on its own runtime (the laptop), and leaves the result in review. See `docs/TELEGRAM.md` for how this is also driven from a phone.
+Self-hosted orchestration board, running locally via Docker Compose. An "agent" is added as
+a teammate with access scoped to this repo and project: issues describe HPC tasks in plain
+language, the agent picks them up, works on its own runtime, and leaves the result in review
+rather than in `main`. Multica supplies the execution log, the review gate and the squads
+that make several agents workable on one project. See `docs/MULTICA.md` for the self-host
+decision, the coordination design, and `docs/TELEGRAM.md` for how this is also driven from a
+phone — Telegram is a Multica channel, not a component we wrote.
 
 ### Hermes
 
-The actual execution runtime. Configured once with the MetaMCP endpoint as its tool source. Everything downstream of "Hermes gets assigned an issue" is the same whether the issue came from the Multica web board or from a Telegram message.
+The execution runtime, and the only agent in the chain that reasons. It is one of the 26
+agent CLIs Multica drives natively, so nothing had to be adapted for it to appear on the
+board.
+
+Configured once with the MetaMCP endpoint as its tool source, with a user-defined model alias
+for CSCS's Apertus endpoint. Provider-agnostic is necessary but not the whole argument — the
+load-bearing properties for this project are persistent memory across sessions, self-improving
+skills, a native multi-platform gateway, and native MCP. `docs/MULTICA.md` states that
+comparison in the form it needs to survive a reviewer asking "why not OpenCode".
+
+Everything downstream of "Hermes gets assigned an issue" is the same whether the issue came
+from the Multica board or from a Telegram message.
 
 ## Data flow for a typical request
 

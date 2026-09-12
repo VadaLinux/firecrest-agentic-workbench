@@ -28,6 +28,31 @@ DOCMIND_SECURITY__ALLOW_REMOTE_ENDPOINTS=true
 
 Same DocMind deployment, same agent, same MCP wrapper — the model call is the only thing that moves off the laptop.
 
+### The agent's model, which is the larger consumer
+
+DocMind's model synthesises answers. **Hermes's model decides what to do** — which tool to
+call, how to read a job failure, when to ask. It is the larger consumer and the one whose
+quality the demo actually rests on, so it swaps the same way, through a user-defined model
+alias pointing at a `custom` provider:
+
+```yaml
+model_aliases:
+  apertus:
+    model: apertus-70b          # or the smaller Apertus-8B variant
+    provider: custom
+    base_url: "https://api.inference.cscs.ch/v1"
+    key_env: CSCS_INFERENCE_API_KEY
+```
+
+then `/model apertus`. No code change, no fork, no adapter — the same property
+`docs/MULTICA.md` argues is load-bearing for choosing Hermes as the Multica runtime at all.
+
+**Status: written, not exercised.** We have no CSCS inference credentials, so neither this
+alias nor the DocMind one has ever run against `api.inference.cscs.ch`. What can be verified
+without their key is that the `custom` provider path itself works, by pointing it at an
+OpenAI-compatible endpoint we control — worth doing before the 3rd, because an unexecuted
+config line is the claim that fails in front of the person who built the endpoint.
+
 ## Why this matters for the pitch, specifically
 
 - **Sovereignty / EU AI Act alignment**: Apertus is fully open (weights, training data, alignment documented) and explicitly positioned by CSCS as compliant with the EU AI Act. That's a stronger governance story than "we called OpenAI's API."
