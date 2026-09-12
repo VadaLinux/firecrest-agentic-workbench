@@ -162,3 +162,9 @@ available. `docs/METAMCP.md` will be created there.
 Open question carried forward: the v1.16.1-vs-v2 spec discrepancy from the prompt 01
 report is still unresolved, and it decides whether this wrapper should later be
 rebuilt against the v2 API surface or kept as-is.
+
+**Update (2026-09-12):** resolved. Production Alps runs v2; the demo stack this
+report is about stays v1.16.1 (`docs/hot-cache.md`). v2 has since been brought up
+and verified on its own — `docs/hot-cache-v2.md` — with a gap analysis and a
+proposal to keep this wrapper's v1 client as-is and add a second client for v2
+rather than rebuild in place (`docs/reports/05-firecrest-v2-gap.md`).

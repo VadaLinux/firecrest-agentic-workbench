@@ -19,6 +19,12 @@ Prompts 01–04 are **done and documented**. 05–08 are not started.
 | 07 | Telegram channel | pending | needs a BotFather token from Gabriele |
 | 08 | Failure scenario | pending | depends on 04 (done) — can start |
 
+**Side track, outside this prompt sequence (2026-09-12):** production Alps runs
+FirecREST v2, not the v1.16.1 everything above is built against. The v2 demo has
+been brought up and verified separately — `docs/hot-cache-v2.md` and
+`docs/reports/05-firecrest-v2-gap.md` — but nothing below changed as a result;
+`firecrest-mcp` still only speaks v1.
+
 ## What is running right now
 
 | Component | Where | Health |
