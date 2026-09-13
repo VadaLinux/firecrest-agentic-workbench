@@ -7,9 +7,9 @@ report for the prompt you are picking up.
 
 ## Where the build stands
 
-Prompts 01–04 are **done and documented**. 06 is now done and verified end to end,
-not just designed. 05 and 07 are genuinely still not started. 08 shipped a partial
-delivery.
+Prompts 01–05 are **done and documented**. 06 is now done and verified end to end,
+not just designed. 07 is genuinely still not started (blocked on a human). 08 shipped
+a partial delivery.
 
 | # | Prompt | State | Evidence |
 |---|---|---|---|
@@ -17,10 +17,10 @@ delivery.
 | 02 | `firecrest-mcp` wrapper | done | issue #2, `docs/reports/02-firecrest-mcp-wrapper.md` |
 | 03 | MetaMCP gateway | done | issue #3, `docs/reports/03-metamcp-setup.md` |
 | 04 | DocMind corpus + `query_docs` | done | issue #4, `docs/reports/04-docmind-corpus.md` |
-| 05 | Hermes ↔ MetaMCP | **not started** | Multica issue `VDLP-12` ("Prompt 05: point Hermes at MetaMCP and run the e2e loop"), status `todo`. Hermes being a connected, online runtime (prompt 06, below) is a precondition for this, not a substitute for it — the dedicated e2e test hasn't been run and written up |
-| 06 | Multica orchestration | **done and verified live** | GitHub issue #5, design in `docs/MULTICA.md`; live evidence below |
+| 05 | Hermes ↔ MetaMCP | **done** | Multica issue `VDLP-12` ("Prompt 05: point Hermes at MetaMCP and run the e2e loop"); `docs/HERMES.md`, `docs/e2e-test-transcript.md` |
+| 06 | Multica orchestration | **done and verified live** | GitHub issue #5, design in `docs/MULTICA.md`; live evidence below; GHCR tag check not yet verified |
 | 07 | Telegram channel | **not started** | blocked on a human: a BotFather bot token and the Multica workspace channel binding, both done in the web UI — neither is something an agent can do |
-| 08 | Failure scenario | **partial delivery** | `docs/failure-scenario-transcript.md`, Multica issue `VDLP-5` (done), merged PR #7 — see the dedicated note below; do not read this row as "done" |
+| 08 | Failure scenario | **partial delivery** | `docs/failure-scenario-transcript.md`, Multica issue `VDLP-5` (done), merged PR #7 — see the dedicated note below; re-run through Hermes now that 05 is done to actually close it |
 
 ### Prompt 06, with evidence (verified 2026-09-13, live)
 

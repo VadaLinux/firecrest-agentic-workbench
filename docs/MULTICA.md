@@ -56,6 +56,19 @@ Agnosticism is necessary, not sufficient. What is actually load-bearing for *thi
 
 The first row is shared with OpenCode. Rows two, three and four are not.
 
+### Hermes is also a Multica Agent, separately from the runtime
+
+As of 2026-09-13, a Multica **Agent** named "Hermes" (`049c24e2-dbd9-448e-9619-e98c960d071d`)
+is registered in this workspace, bound to this same Hermes runtime, with its own
+explicit role contract: multi-channel gateway to gabriele.vadala, and FirecREST/DocMind
+operator via MetaMCP. This is on top of — not a replacement for — Hermes appearing in
+Multica's provider table as a runtime (the properties in the table above).
+
+gabriele.vadala talks directly to Mika, the workspace Chief of Staff. Mika is **not** a
+relay to or from Hermes, and Hermes is **not** Mika's manager — they are peer agents
+with distinct scopes. Issues that need channel delivery or FirecREST/DocMind operation
+route to Hermes directly.
+
 ## Apertus: the agent's model, not just the RAG's
 
 `docs/INFERENCE.md` documents the swap for DocMind's model. **The agent is the larger
