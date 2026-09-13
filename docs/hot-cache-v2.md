@@ -309,6 +309,37 @@ per-endpoint `{"description": ..., "error": ...}` shapes:
 Missing/invalid auth: clean `401 {"errorType": "error", "message": "Not authenticated", ...}`.
 Unknown system: clean `404`, not v1's `400` for the equivalent mistake (§0).
 
+## 6. New finding from implementing `client_v2.py` (VDLP-11): relative `workingDirectory` is accepted but not resolved
+
+Not exercised in the original verification session, surfaced while building
+`firecrest-mcp/client_v2.py`. `POST /compute/{system}/jobs` accepts a relative
+`workingDirectory` (e.g. `"."`) without complaint, and the job genuinely runs
+with its output landing in the real home directory on disk (confirmed by
+listing the directory afterwards). But neither of v2's own read-back calls
+resolve that value to an absolute path — `GET /compute/{system}/jobs/{id}`
+echoes `"workingDirectory": "."` back verbatim, and
+`GET /compute/{system}/jobs/{id}/metadata` echoes `standardOutput`/
+`standardError` as `"./name.out"`/`"./name.err"`, still relative. Both
+`GET /filesystem/{system}/ops/view` and `.../ops/download` then reject those
+same paths outright:
+
+```json
+{"errorType": "error", "message": "The provided path (./name.out) is not an absolute path.", ...}
+```
+
+So a job submitted with a relative `workingDirectory` is real and ran
+correctly, but its own output paths — as reported by FirecREST itself — are
+useless for the very filesystem calls needed to read that output back. There
+is no v2 endpoint exercised here that reports an absolute home directory
+either (`/status/{system}/userinfo` is one of the routes this demo's stand-in
+scheduler can't answer, §4's closing note) — a caller has to already know an
+absolute path, e.g. via `ops/ls` on a path it does know.
+
+`client_v2.py`'s `submit_job` treats this as a hard input-validation error:
+it requires an absolute `working_directory` and rejects a relative one
+up front, rather than submitting a job whose output the client itself could
+never read back.
+
 ## Footnote: the fake scheduler's known gap
 
 The stand-in `sbatch` does not apply `--export=ALL,KEY=VALUE` to the script's

@@ -22,6 +22,7 @@ import argparse
 import base64
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,8 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from client import FirecRESTClient, FirecRESTConfig, FirecRESTError
+from client import _load_dotenv as _load_env_file
+from client_v2 import FirecRESTClientV2, FirecRESTConfigV2
 
 logger = logging.getLogger("firecrest-mcp")
 
@@ -46,10 +49,32 @@ server = MCPServer(
     ),
 )
 
-_client: FirecRESTClient | None = None
+_client: FirecRESTClient | FirecRESTClientV2 | None = None
 
 
-async def get_client() -> FirecRESTClient:
+def _api_version() -> str:
+    """Which FirecREST major version to speak, chosen once at startup.
+
+    Unset or ``v1`` keeps today's default (``client.py`` against the v1 demo
+    stack) untouched. Set ``FIRECREST_API_VERSION=v2`` to talk FirecREST v2
+    (``client_v2.py``) instead — the two are mutually exclusive per server
+    process, per Option B of ``docs/reports/05-firecrest-v2-gap.md``.
+
+    ``FIRECREST_API_VERSION`` has to be readable before either config class's
+    own ``from_env()`` runs — that call is what *this flag* decides between —
+    so the ``.env`` file is loaded here too, not left to one of them to do as
+    a side effect.
+    """
+    _load_env_file(Path(__file__).with_name(".env"))
+    version = os.environ.get("FIRECREST_API_VERSION", "v1").strip().lower()
+    if version not in ("v1", "v2"):
+        raise FirecRESTError(
+            f"FIRECREST_API_VERSION={version!r} is not supported — use 'v1' or 'v2'."
+        )
+    return version
+
+
+async def get_client() -> FirecRESTClient | FirecRESTClientV2:
     """Create the FirecREST client on first use and reuse it afterwards.
 
     Lazy so that ``--dry-run`` can start the server without live credentials,
@@ -58,7 +83,10 @@ async def get_client() -> FirecRESTClient:
     """
     global _client
     if _client is None:
-        _client = FirecRESTClient(FirecRESTConfig.from_env())
+        if _api_version() == "v2":
+            _client = FirecRESTClientV2(FirecRESTConfigV2.from_env())
+        else:
+            _client = FirecRESTClient(FirecRESTConfig.from_env())
     return _client
 
 
@@ -80,7 +108,9 @@ def _fail(exc: Exception) -> dict[str, Any]:
 
 
 @server.tool()
-async def submit_job(script: str, system: str, account: str | None = None) -> dict[str, Any]:
+async def submit_job(
+    script: str, system: str, account: str | None = None, working_directory: str | None = None
+) -> dict[str, Any]:
     """Submit a batch job script to the HPC cluster and get back its job id.
 
     Use this when the user asks to run, launch, submit or start something on the
@@ -103,13 +133,26 @@ async def submit_job(script: str, system: str, account: str | None = None) -> di
     `account` is the scheduler project account, only needed if the cluster
     requires one; it is safe to omit.
 
+    `working_directory` only matters when this server is configured for
+    FirecREST v2 (`FIRECREST_API_VERSION=v2`) — v1 ignores it. For v2 it is
+    **required and must be an absolute path**: call list_files first if you
+    don't already know one. Verified against the v2 demo: a relative value
+    such as `.` is accepted and the job really does run, but v2's own status
+    and metadata responses echo it back unresolved, which makes the job's
+    output unreadable by get_job_log/download_file afterwards — so this tool
+    refuses it upfront rather than submitting a job whose output nothing can
+    read back.
+
     Returns the job id, plus the remote paths where the job's stdout and stderr
     will appear. Submission is asynchronous but this waits for the scheduler to
     accept the job, so a returned job id is a real, queued job.
     """
     try:
         client = await get_client()
-        result = await client.submit_job(script=script, system=system, account=account)
+        kwargs: dict[str, Any] = {}
+        if isinstance(client, FirecRESTClientV2):
+            kwargs["working_directory"] = working_directory
+        result = await client.submit_job(script=script, system=system, account=account, **kwargs)
         return {
             "ok": True,
             "jobid": result.jobid,
@@ -149,11 +192,12 @@ async def get_job_status(job_id: str) -> dict[str, Any]:
         status = await client.get_job_status(job_id)
         job = status.model_dump(exclude_none=True)
         result: dict[str, Any] = {"ok": True, "job": job}
-        # Reproduced against the demo stack: while a job is PENDING, sacct
-        # reports a placeholder record — name "allocation", empty partition —
-        # which is replaced by the real values once the job is allocated.
-        # The empty partition is the tell, so do not let an agent report it.
-        if not job.get("partition"):
+        # Reproduced against the v1 demo stack only: while a job is PENDING,
+        # sacct reports a placeholder record — name "allocation", empty
+        # partition — which is replaced by the real values once the job is
+        # allocated. v2 has no such indirection (one call, real state inline,
+        # docs/hot-cache-v2.md §0), so this caveat does not apply there.
+        if isinstance(client, FirecRESTClient) and not job.get("partition"):
             result["warning"] = (
                 "This accounting record is a placeholder, not the job's real "
                 "identity: while a job is PENDING the scheduler reports no "
@@ -277,7 +321,8 @@ def _announce(mode: str) -> None:
     for name in tools:
         print(f"  tool: {name}", file=sys.stderr)
     try:
-        config = FirecRESTConfig.from_env()
+        version = _api_version()
+        config = FirecRESTConfigV2.from_env() if version == "v2" else FirecRESTConfig.from_env()
     except FirecRESTError as exc:
         print(f"  configuration: NOT READY — {exc}", file=sys.stderr)
         print(
@@ -286,8 +331,8 @@ def _announce(mode: str) -> None:
         )
     else:
         print(
-            f"  configuration: {config.base_url} as system '{config.system}', "
-            f"logs in {config.log_dir}",
+            f"  configuration: FirecREST {version} at {config.base_url} as system "
+            f"'{config.system}', logs in {config.log_dir}",
             file=sys.stderr,
         )
 
