@@ -1,12 +1,15 @@
 # Handover — state of the workbench
 
-Written 2026-09-11 at the end of a long session. Purpose: resume tomorrow without
-re-deriving anything. Read this first, then `AGENTS.md`, then the report for the
-prompt you are picking up.
+Written 2026-09-11, **refreshed 2026-09-13** against the live host and the workspace
+board (issue VDLP-13) rather than re-derived from memory — the 09-11 snapshot below
+had gone stale in several places since. Read this first, then `AGENTS.md`, then the
+report for the prompt you are picking up.
 
 ## Where the build stands
 
-Prompts 01–04 are **done and documented**. 05–08 are not started.
+Prompts 01–04 are **done and documented**. 06 is now done and verified end to end,
+not just designed. 05 and 07 are genuinely still not started. 08 shipped a partial
+delivery.
 
 | # | Prompt | State | Evidence |
 |---|---|---|---|
@@ -14,27 +17,97 @@ Prompts 01–04 are **done and documented**. 05–08 are not started.
 | 02 | `firecrest-mcp` wrapper | done | issue #2, `docs/reports/02-firecrest-mcp-wrapper.md` |
 | 03 | MetaMCP gateway | done | issue #3, `docs/reports/03-metamcp-setup.md` |
 | 04 | DocMind corpus + `query_docs` | done | issue #4, `docs/reports/04-docmind-corpus.md` |
-| 05 | Hermes ↔ MetaMCP | **next** | — |
-| 06 | Multica orchestration | pending | — |
-| 07 | Telegram channel | pending | needs a BotFather token from Gabriele |
-| 08 | Failure scenario | pending | depends on 04 (done) — can start |
+| 05 | Hermes ↔ MetaMCP | **not started** | Multica issue `VDLP-12` ("Prompt 05: point Hermes at MetaMCP and run the e2e loop"), status `todo`. Hermes being a connected, online runtime (prompt 06, below) is a precondition for this, not a substitute for it — the dedicated e2e test hasn't been run and written up |
+| 06 | Multica orchestration | **done and verified live** | GitHub issue #5, design in `docs/MULTICA.md`; live evidence below |
+| 07 | Telegram channel | **not started** | blocked on a human: a BotFather bot token and the Multica workspace channel binding, both done in the web UI — neither is something an agent can do |
+| 08 | Failure scenario | **partial delivery** | `docs/failure-scenario-transcript.md`, Multica issue `VDLP-5` (done), merged PR #7 — see the dedicated note below; do not read this row as "done" |
 
-**Side track, outside this prompt sequence (2026-09-12):** production Alps runs
-FirecREST v2, not the v1.16.1 everything above is built against. The v2 demo has
-been brought up and verified separately — `docs/hot-cache-v2.md` and
-`docs/reports/05-firecrest-v2-gap.md` — but nothing below changed as a result;
-`firecrest-mcp` still only speaks v1.
+### Prompt 06, with evidence (verified 2026-09-13, live)
+
+- **Multica self-host installed and running.** `multica daemon status` reports a
+  running daemon (`server_url: http://localhost:8081`, uptime ~24 h) with three
+  registered agent providers (`claude`, `hermes`, `codex`).
+- **Hermes connected as a runtime and visible on the board.** `multica runtime list`
+  shows `Hermes (VadaLinux.lan)` (`be5af7cd-f432-49ce-b4ec-f52501904226`,
+  provider `hermes`) with `status: online`, alongside the Claude Code and Codex
+  runtimes — all three `online` as of this check.
+- **Test issue filed → picked up → worked → review, with zero manual steps beyond
+  filing and approving,** happened repeatedly, not once: `VDLP-2`, `VDLP-3`, `VDLP-4`
+  (parent) / `VDLP-5` (child), `VDLP-10`, and `VDLP-11` are all `status: done`, each
+  with a PR opened by the assigned agent and merged after review. In this repo alone,
+  `gh pr list --state all` shows PR #6 (`VDLP-3`), #7 (`VDLP-5`/prompt 08), and #8
+  (`VDLP-11`) merged; `VDLP-2` and `VDLP-10` shipped the same way against the
+  `cscs-knowledge` repo. `VDLP-5`'s own comment history additionally shows an agent
+  run hitting a real `402 Insufficient credits` error from the Hermes provider
+  mid-task and recovering to deliver — evidence the loop runs a real, billed
+  inference call, not a mock.
+- **GHCR tag checked — left unchecked, deliberately.** `docs/MULTICA.md` itself
+  still says *"the published GHCR tag has not been checked yet. Do that before
+  choosing an install path"* (line 214), and nothing else in the repo or the issue
+  history records that check happening. The self-host install clearly did complete by
+  some path, but there is no record of which install path was chosen or that the
+  GHCR-tag precondition was verified first — so the box stays unchecked rather than
+  being marked done on inference.
+
+### Prompt 08, read carefully — it is not "done"
+
+`docs/failure-scenario-transcript.md` (delivered by `VDLP-5`, merged as PR #7) is a
+**partial** delivery of the original prompt, on two separate axes:
+
+1. **At the time it was written, the `query_docs` half of it hadn't happened.** The
+   transcript's own "DocMind retrieval check" section is explicit: ingestion of the
+   transcript hit `SnapshotLockTimeoutError` (another ingestion already held the
+   lock), and it says outright *"no `query_docs` question or answer is represented as
+   an end-to-end verification for job 13."* The failure diagnosis itself is solid and
+   evidence-backed (Slurm's own `FAILED` / exit code `3:0` agrees with the stderr
+   line), but that diagnosis was produced by reading the raw scheduler and log
+   output directly — not by a working `query_docs` round trip.
+   **Update as of this refresh:** the corpus has since been reingested (consistent
+   with the nightly reingest timer), and asking `query_docs` live just now — *"Why
+   did job 13 fail on the FirecREST demo cluster?"* — retrieves the transcript and
+   answers correctly, citing it. So the gap the transcript records is closed in
+   practice, but **the transcript file itself has not been updated to say so** — a
+   reader of that file alone would still believe the verification never happened.
+2. **It does not route through Hermes/MetaMCP or Telegram**, which are steps 2 and 4
+   of the original prompt 08 spec. Grepping the transcript for `Hermes`, `MetaMCP`,
+   and `Telegram` returns zero matches — every tool call in it (`list_files`,
+   `submit_job`, `get_job_status`, `get_job_log`) is recorded as a direct FirecREST
+   tool call, with no channel attribution at all. This is a rehearsal of the
+   diagnosis logic, not an end-to-end channel test.
+
+**Side track, outside this prompt sequence:** production Alps runs FirecREST v2, not
+the v1.16.1 everything above is built against. This has moved further than the 09-11
+snapshot recorded:
+
+- The v2 demo was brought up and gap-analysed — `docs/hot-cache-v2.md` and
+  `docs/reports/05-firecrest-v2-gap.md` — and that work **has since landed on
+  `main`** (`VDLP-3`, merged PR #6), not merely written up separately as before.
+- A real v2 client shipped — `firecrest-mcp/client_v2.py` (`VDLP-11`, merged PR #8) —
+  and `firecrest-mcp/server.py` now switches between `client.py` and `client_v2.py`
+  on `FIRECREST_API_VERSION` (`v1` by default, `v2` opt-in). So this is no longer
+  "written but nothing changed as a result": v1 stays the default and untouched, and
+  v2 is a real, selectable code path, just not the one wired into the running
+  `firecrest-mcp.service` today.
 
 ## What is running right now
 
+Re-verified 2026-09-13 directly against the host (`docker compose ps` per stack,
+`systemctl --user status`, a live `query_docs` call) — not assumed from the 09-11 or
+09-12 snapshots.
+
 | Component | Where | Health |
 |---|---|---|
-| FirecREST demo stack | `~/Sviluppo/firecrest/deploy/demo` | 15 services, Kong healthy, API `:8000` |
-| `firecrest-mcp` | `0.0.0.0:8765` (Streamable HTTP) | 5 tools |
-| MetaMCP | `:12008`, namespace `firecrest-workbench` | healthy |
-| DocMind app | `:8501` | healthy, snapshot `20260911T171839-f54356c0` active |
+| FirecREST demo stack | `~/Sviluppo/firecrest/deploy/demo` | 15 services up, Kong healthy, API `:8000` |
+| `firecrest-mcp` | `0.0.0.0:8765` (Streamable HTTP), user unit `firecrest-mcp.service` | active/running, 5 tools |
+| MetaMCP | `:12008`, namespace `firecrest-workbench` | container healthy, aggregated endpoint still serves exactly 6 tools |
+| DocMind app | `:8501` | healthy, snapshot `20260913T044207-f74bae7c` active (refreshed since 09-11; `query_docs` verified live against it, see prompt 08 note above) |
 | `docmind-mcp` | `:8770` (Streamable HTTP) | healthy, 1 tool |
 | Ollama (DocMind's) | internal only | healthy, `qwen3:4b-instruct` |
+| Multica daemon | `http://localhost:8081` | running, ~24h uptime, 3 online runtimes (`claude`, `hermes`, `codex`) |
+
+The FirecREST v2 demo container from the side track (`docs/hot-cache-v2.md`) was a
+throwaway verification run, not a persistent service — it is not expected to still be
+running and was not re-checked here.
 
 The aggregated MetaMCP endpoint serves exactly **six** tools:
 
@@ -195,11 +268,15 @@ Recorded so they are not re-derived, and so nobody acts on the retracted version
    openSUSE Leap 16 / SLES 16 (SUSE changed its default), not to Ubuntu/Debian, where
    AppArmor does not enforce file labels. Corrected in report 01 and on issue #1.
 
-## Next: prompt 05
+## Next: prompt 05 — still genuinely open
 
-Prompt 05 points Hermes at the MetaMCP endpoint and runs an end-to-end test. It is the
-only one of the seven that **modifies the agent's own configuration** rather than a
-component, which is why it was left for a fresh session with explicit agreement.
+Prompt 05 points Hermes at the MetaMCP endpoint and runs a dedicated end-to-end test.
+Prompt 06 landing (Hermes online as a runtime, real issues worked end to end through
+it) removes the "is Hermes even reachable" question but does **not** substitute for
+this prompt — nobody has filed the specific e2e test this prompt asks for and written
+it up. Tracked as Multica issue `VDLP-12` (`todo`). It is the only one of the seven
+that **modifies the agent's own configuration** rather than a component, which is why
+it was left for a fresh session with explicit agreement.
 
 Before starting it:
 
@@ -209,10 +286,18 @@ Before starting it:
 - Expect `docmind__query_docs` to take ~45 s. If it times out, check the MetaMCP timeout
   settings and `metamcp_admin.py --timeout` before suspecting the tool.
 
-## Prompt 08 can start in parallel
+## Prompt 07 — still blocked on a human
 
-It depends on 04, which is done. It needs a deliberately failing job submitted through
-the FirecREST stack, its log ingested into DocMind, and a diagnosis produced from it.
-Two things learned today that it should account for: job logs must be staged as `.txt`
-or they are silently skipped, and several identical trivial logs will be rejected as
-duplicate content.
+Needs a BotFather bot token and the Multica workspace channel binding done in the web
+UI. No agent can do either step; nothing to pick up here without Gabriele.
+
+## Prompt 08 — shipped, but read the caveat above before treating it as closed
+
+Delivered as `docs/failure-scenario-transcript.md` (`VDLP-5`, merged PR #7): a
+deliberately failing job was submitted through the FirecREST stack, its log ingested
+into DocMind, and a diagnosis produced from the raw evidence. See "Prompt 08, read
+carefully" above for what is still open — the transcript's own retrieval-check
+section was written before ingestion succeeded, and the delivered record never routed
+through Hermes/MetaMCP or Telegram. Two things learned along the way that any related
+follow-up should account for: job logs must be staged as `.txt` or they are silently
+skipped, and several identical trivial logs will be rejected as duplicate content.
