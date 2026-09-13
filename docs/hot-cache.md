@@ -31,6 +31,11 @@ and verified; nothing here is paraphrased from documentation.
 > `reports/02-firecrest-mcp-wrapper.md` and `reports/03-metamcp-setup.md`, which this
 > resolves.
 >
+> **v2 has since been brought up and verified separately — see `docs/hot-cache-v2.md`**
+> (the v2 equivalent of this file) **and `docs/reports/05-firecrest-v2-gap.md`** (the
+> v1→v2 gap table and a design proposal for `firecrest-mcp/`). Nothing in *this* file
+> changed as a result; v1 stays exactly as documented here.
+>
 > One upstream inconsistency worth knowing: `access/firecrest.md` says v1 was
 > *decommissioned* on 2025-12-05, while the cluster pages (`clusters/daint.md`,
 > `clusters/eiger.md`, `clusters/santis.md`) still say "The FirecREST v1 API is still

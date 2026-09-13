@@ -58,7 +58,10 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full breakdown of each compon
 ├── AGENTS.md                conventions Hermes/Multica read automatically
 ├── docs/
 │   ├── TELEGRAM.md          how the Telegram channel is wired to Multica
-│   └── INFERENCE.md         swapping local Ollama for CSCS's own inference API
+│   ├── INFERENCE.md         swapping local Ollama for CSCS's own inference API
+│   ├── hot-cache.md         verified FirecREST v1.16.1 calls (the demo stack below)
+│   ├── hot-cache-v2.md      verified FirecREST v2 calls (production Alps' version)
+│   └── reports/             dated write-ups of what was built and verified, per prompt
 ├── prompts/                 the exact task prompts given to Hermes to build each piece
 │   ├── 00-overview.md
 │   ├── 01-firecrest-demo-stack.md
@@ -119,6 +122,15 @@ Full step-by-step: [`prompts/00-overview.md`](./prompts/00-overview.md).
 The MetaMCP endpoint currently aggregates six tools: five from `firecrest-mcp` and
 `docmind__query_docs` from the local RAG corpus. Resume from
 [`docs/HANDOVER.md`](./docs/HANDOVER.md).
+
+**FirecREST v2 investigated (2026-09-12):** production Alps runs v2, not the v1.16.1
+this project's demo stack and `firecrest-mcp/` are built against (v1 was
+decommissioned on Alps on 2025-12-05). The v2 demo has been brought up and its
+calls verified against a running instance — [`docs/hot-cache-v2.md`](./docs/hot-cache-v2.md)
+— with a v1→v2 gap analysis and a design proposal (not yet implemented) for a
+second client in `firecrest-mcp/` —
+[`05-firecrest-v2-gap.md`](./docs/reports/05-firecrest-v2-gap.md). `firecrest-mcp/`
+itself is unchanged by this and still only speaks v1.
 
 See [`CSCS-PROPOSAL.md`](./CSCS-PROPOSAL.md) for the pitch text and the [preparation checklist](./prompts/00-overview.md) for what still needs to be built before the 3rd.
 

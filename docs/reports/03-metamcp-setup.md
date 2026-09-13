@@ -163,3 +163,6 @@ receive a second tool.
 
 Open question carried forward: the v1.16.1-vs-v2 spec discrepancy from the prompt 01
 report is still unresolved.
+
+**Update (2026-09-12):** resolved — see `docs/hot-cache-v2.md` and
+`docs/reports/05-firecrest-v2-gap.md`.
