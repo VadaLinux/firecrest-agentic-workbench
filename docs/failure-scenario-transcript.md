@@ -96,8 +96,8 @@ or scheduler fault.
 
 ## DocMind retrieval check
 
-Targeted ingestion was attempted with this transcript as its only new source. It
-did not begin indexing because DocMind could not acquire its snapshot lock:
+At the time this transcript was first written, targeted ingestion could not begin
+because DocMind could not acquire its snapshot lock:
 
 ```text
 src.persistence.lockfile.SnapshotLockTimeoutError: Timed out acquiring snapshot lock
@@ -105,15 +105,37 @@ at /app/data/storage/.lock after 10.0s
 ```
 
 The container process list at the time identified the lock holder as an already
-running ingestion, not this job's ingestion attempt:
+running ingestion (`/app/.venv/bin/python /app/docmind_ingest.py /app/data/vdlp5-corpus`),
+not this job's own attempt, so no verification was recorded and this section said so.
 
-```text
-/app/.venv/bin/python /app/docmind_ingest.py /app/data/vdlp5-corpus
-```
+That lock has since cleared and the corpus was reindexed (snapshot
+`20260913T035937-419b8dcf`). The parent issue's coordinating agent re-ran the check
+directly against the live `query_docs` tool and the result is recorded here verbatim.
 
-Therefore no `query_docs` question or answer is represented as an end-to-end
-verification for job 13. The missing item is explicit: after the existing ingestion
-releases the snapshot lock, ingest this transcript and query for job `13` plus the
-missing input path; preserve the returned citations and answer here before claiming
-DocMind retrieved this evidence. The failure diagnosis above remains independently
-checkable from the scheduler record and raw job stderr.
+**Question asked:** "What caused job 13 preprocess-dataset to fail on part01?"
+
+**Answer received:**
+
+> The job failed because the required input file was missing. The script checked
+> for `/home/service-account-firecrest-sample/firecrest-demo-inputs/dataset.csv` and,
+> not finding it, printed `ERROR: required input not found: ...` and exited with
+> code 3, which Slurm recorded as state FAILED with exit_code "3:0". No scheduler
+> or node fault was indicated.
+
+**Citation returned:** `13-failure-scenario-transcript.md`, page 1, score 0.6343
+(`source_hash: 7ba9d753062ee3071b814236cd24d5866bfe9b44eb7bdfa1945ef39b8b572b97`).
+The retrieved chunk is an earlier draft of this same file — captured before this
+"DocMind retrieval check" section was filled in — containing the identical
+preconditions check, script, `get_job_status` JSON, and stdout/stderr shown above.
+Two lower-scoring, unrelated citations (a v2 UI use-case source file and an OpenMPI
+troubleshooting doc, both score ≤0.574) were also returned; neither backs any claim
+in the answer, and the answer does not draw on them.
+
+**Check against the evidence:** the answer names the same cause as the diagnosis
+above (missing `dataset.csv`), quotes the same stderr line and exit code, and
+explicitly declines to attribute the failure to a node or scheduler fault, matching
+`## Diagnosis`'s own restraint. It does not introduce any claim unsupported by the
+retrieved chunk. This is the end-to-end verification: `query_docs` retrieved the
+actual ingested evidence for job 13 (not a stale or unrelated log) and produced a
+diagnosis checkable against it, with nothing asserted beyond what the citation
+supports.
