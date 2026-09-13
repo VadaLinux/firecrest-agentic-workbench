@@ -267,6 +267,17 @@ Recorded so they are not re-derived, and so nobody acts on the retracted version
 3. **SELinux scope is narrower than first reported.** It applies to RHEL-family *and*
    openSUSE Leap 16 / SLES 16 (SUSE changed its default), not to Ubuntu/Debian, where
    AppArmor does not enforce file labels. Corrected in report 01 and on issue #1.
+4. **`--snapshot-id` flag in Bibliotecario's contract was dropped (issue VDLP-14).** 
+   The flag was added to step 2 of Bibliotecario's ingestion contract 
+   (`docmind_ingest.py /app/data/vdlp5-corpus --snapshot-id vdlp-sync-$(date +%s)`) 
+   but was never implemented in the script. Investigation revealed: (a) the script 
+   only accepts a positional corpus argument; (b) DocMind provides its own snapshot 
+   naming with timestamps (`<timestamp>-<hash>`), which is sufficient for tracing; 
+   (c) supporting custom IDs would require changes to DocMind's SnapshotManager, 
+   outside the scope of this repo. **Decision:** remove `--snapshot-id` from the 
+   contract. The timestamp-based naming DocMind provides natively is adequate for 
+   identifying which run created which snapshot. The contract now reflects what the 
+   tool actually does.
 
 ## Next: prompt 05 — still genuinely open
 
