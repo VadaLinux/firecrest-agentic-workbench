@@ -114,7 +114,14 @@ for spec in "${SOURCE_SPECS[@]}"; do
 done
 
 log "Changes detected — starting firecrest-reingest.service"
-systemctl --user start firecrest-reingest.service 2>&1 | sed 's/^/  /'
+# --no-block: for a Type=oneshot unit, a plain `start` blocks until the service
+# exits. The ingestion runs for hours; this script's own unit has
+# TimeoutStartSec=20min and would be killed long before the ingestion finishes,
+# taking this watcher down with it (it does not affect the ingestion itself,
+# which is a separate unit with TimeoutStartSec=infinity — but it leaves
+# firecrest-docs-watch.service in a failed state every time it fires a change).
+# --no-block enqueues the job and returns immediately, keeping this script short.
+systemctl --user start --no-block firecrest-reingest.service 2>&1 | sed 's/^/  /'
 log "delta: $SUMMARY"
 log "done — systemd owns the ingestion from here"
 exit 0
