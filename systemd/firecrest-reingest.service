@@ -1,0 +1,24 @@
+[Unit]
+Description=DocMind full corpus re-ingestion (CSCS docs + FirecREST v2 docs)
+Documentation=file:///home/gavadala/Sviluppo/firecrest-agentic-workbench/docs/MULTICA-BOARD.md
+Requires=firecrest-workbench-deploy.service
+After=firecrest-workbench-stacks.service firecrest-workbench-deploy.service
+Wants=firecrest-workbench-stacks.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/gavadala/Sviluppo/firecrest-agentic-workbench
+# See firecrest-docs-watch.service: this protects the source tree throughout work.
+ExecStart=/usr/bin/flock --shared %t/firecrest-workbench-deploy.lock /bin/bash /home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/reingest_corpus.sh
+
+TimeoutStartSec=infinity
+TimeoutStopSec=300
+Nice=10
+CPUSchedulingPolicy=batch
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=firecrest-reingest
+
+[Install]
+WantedBy=default.target
