@@ -1,0 +1,25 @@
+[Unit]
+Description=Deterministic docs-delta check for the CSCS knowledge base (VDLP-19)
+Documentation=file:///home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/docs_delta_check.sh
+# Replaces the "docs delta — {{date}}" autopilot (dcccd59f-2232-4d78-a90e-514d9fa8aeb5).
+# No LLM in this path: scripts/docs_delta_check.sh is a deterministic bash template
+# over git/GitHub state, and files its own failures as Multica issues via the CLI —
+# see the script's own header comment for the full rationale.
+Requires=firecrest-workbench-deploy.service
+After=firecrest-workbench-stacks.service firecrest-workbench-deploy.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Sviluppo/firecrest-agentic-workbench
+# The report/issue files this script writes must land inside `multica`'s cwd
+# (MUL-4252 anti stale-file guard) — WorkingDirectory above satisfies that.
+ExecStart=/bin/bash %h/Sviluppo/firecrest-agentic-workbench/scripts/docs_delta_check.sh
+
+TimeoutStartSec=10min
+Nice=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=firecrest-docs-delta-check
+
+[Install]
+WantedBy=default.target
