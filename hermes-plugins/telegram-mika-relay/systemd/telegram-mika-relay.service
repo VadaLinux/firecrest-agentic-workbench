@@ -1,0 +1,21 @@
+[Unit]
+Description=Telegram ⇄ Mika relay return path (VDLP-16)
+Documentation=https://github.com/VadaLinux76/firecrest-agentic-workbench/blob/main/hermes-plugins/telegram-mika-relay/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# %h is the user's home; the unit is installed per-user, not system-wide.
+ExecStart=/usr/bin/python3 %h/.hermes/plugins/telegram-mika-relay/relay_poller.py --loop
+Environment=HERMES_HOME=%h/.hermes
+Environment=RELAY_POLL_INTERVAL=20
+Restart=always
+RestartSec=10
+# The poller shells out to `multica` and `hermes`; it needs both on PATH.
+Environment=PATH=/opt/Multica/resources/app.asar.unpacked/resources/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+StandardOutput=append:%h/.hermes/telegram-mika-relay/poller.log
+StandardError=append:%h/.hermes/telegram-mika-relay/poller.log
+
+[Install]
+WantedBy=default.target

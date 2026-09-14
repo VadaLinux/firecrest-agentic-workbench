@@ -1,0 +1,6 @@
+name: telegram-mika-relay
+version: 1.0.0
+description: "Relay inbound Telegram messages into Mika's Multica queue instead of letting Hermes answer them itself. Hermes is transport for the channel, not its voice."
+author: "Operator(Hermes) — VDLP-16"
+provides_hooks:
+  - pre_gateway_dispatch
