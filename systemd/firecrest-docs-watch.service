@@ -1,15 +1,15 @@
 [Unit]
 Description=Check the CSCS documentation sources for changes and trigger a re-ingestion
-Documentation=file:///home/gavadala/Sviluppo/firecrest-agentic-workbench/docs/MULTICA-BOARD.md
+Documentation=https://github.com/VadaLinux/firecrest-agentic-workbench/blob/main/docs/MULTICA-BOARD.md
 Requires=firecrest-workbench-deploy.service
 After=firecrest-workbench-stacks.service firecrest-workbench-deploy.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/gavadala/Sviluppo/firecrest-agentic-workbench
+WorkingDirectory=%h/Sviluppo/firecrest-agentic-workbench
 # Hold a shared lock for the entire workload.  The deploy service uses the exclusive
 # side of this lock, so it cannot fast-forward the clone while this script runs.
-ExecStart=/usr/bin/flock --shared %t/firecrest-workbench-deploy.lock /bin/bash /home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/docs_delta.sh
+ExecStart=/usr/bin/flock --shared %t/firecrest-workbench-deploy.lock /bin/bash %h/Sviluppo/firecrest-agentic-workbench/scripts/docs_delta.sh
 
 TimeoutStartSec=20min
 Nice=10

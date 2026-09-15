@@ -1,6 +1,6 @@
 [Unit]
 Description=Deterministic docs-delta check for the CSCS knowledge base (VDLP-19)
-Documentation=file:///home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/docs_delta_check.sh
+Documentation=https://github.com/VadaLinux/firecrest-agentic-workbench/blob/main/scripts/docs_delta_check.sh
 # Replaces the "docs delta — {{date}}" autopilot (dcccd59f-2232-4d78-a90e-514d9fa8aeb5).
 # No LLM in this path: scripts/docs_delta_check.sh is a deterministic bash template
 # over git/GitHub state, and files its own failures as Multica issues via the CLI —
