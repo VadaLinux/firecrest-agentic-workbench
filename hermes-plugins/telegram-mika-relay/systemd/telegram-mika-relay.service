@@ -1,6 +1,6 @@
 [Unit]
 Description=Telegram ⇄ Mika relay return path (VDLP-16)
-Documentation=https://github.com/VadaLinux76/firecrest-agentic-workbench/blob/main/hermes-plugins/telegram-mika-relay/README.md
+Documentation=https://github.com/VadaLinux/firecrest-agentic-workbench/blob/main/hermes-plugins/telegram-mika-relay/README.md
 After=network-online.target
 Wants=network-online.target
 
