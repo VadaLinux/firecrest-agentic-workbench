@@ -1,0 +1,18 @@
+[Unit]
+Description=Morning DocMind re-ingestion report, at 07:00 (VDLP-19)
+Documentation=file:///home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/nightly_report.sh
+
+[Timer]
+# Same slot as the autopilot it replaces (cron "0 7 * * *" Europe/Zurich).
+OnCalendar=*-*-* 07:00:00
+# If the machine was off at 07:00, run when it comes back — the script derives
+# its own target date from the last report it filed, so a late/skipped run is
+# recovered rather than lost.
+Persistent=true
+AccuracySec=2min
+RandomizedDelaySec=3min
+
+Unit=firecrest-nightly-report.service
+
+[Install]
+WantedBy=timers.target

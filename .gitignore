@@ -10,3 +10,4 @@ firecrest/
 node_modules/
 __pycache__/
 *.pyc
+scripts/.reports/

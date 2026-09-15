@@ -1,0 +1,17 @@
+[Unit]
+Description=Nightly docs-delta check for the CSCS knowledge base, at 22:00 (VDLP-19)
+Documentation=file:///home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/docs_delta_check.sh
+
+[Timer]
+# Same slot as the autopilot it replaces (cron "0 22 * * *" Europe/Zurich).
+OnCalendar=*-*-* 22:00:00
+# If the machine was off at 22:00, run when it comes back rather than skipping a
+# day — the underlying baseline lives in git, so a late run still diffs correctly.
+Persistent=true
+AccuracySec=2min
+RandomizedDelaySec=3min
+
+Unit=firecrest-docs-delta-check.service
+
+[Install]
+WantedBy=timers.target
