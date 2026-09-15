@@ -21,10 +21,11 @@
 
 set -uo pipefail
 
-REPO="${REPO:-/home/gavadala/Sviluppo/firecrest-agentic-workbench}"
-CSCS_DOCS="${CSCS_DOCS:-/home/gavadala/Sviluppo/cscs-docs/docs}"
-V2_DOCS="${V2_DOCS:-/home/gavadala/Sviluppo/firecrest-v2-src/docs}"
-V2_SPEC="${V2_SPEC:-/home/gavadala/Sviluppo/firecrest-v2-corpus/openapi.json}"
+REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${HOME}/Sviluppo}"
+CSCS_DOCS="${CSCS_DOCS:-${WORKSPACE_ROOT}/cscs-docs/docs}"
+V2_DOCS="${V2_DOCS:-${WORKSPACE_ROOT}/firecrest-v2-src/docs}"
+V2_SPEC="${V2_SPEC:-${WORKSPACE_ROOT}/firecrest-v2-corpus/openapi.json}"
 # Job logs written by firecrest-mcp's get_job_log. AGENTS.md names this directory as
 # what DocMind ingests for the failure-scenario demo, but this script had no source
 # pointing at it, so neither a manual run nor the timer ever picked a log up. The
@@ -32,10 +33,10 @@ V2_SPEC="${V2_SPEC:-/home/gavadala/Sviluppo/firecrest-v2-corpus/openapi.json}"
 # trivial `hello` submissions) are dropped by its content dedup rather than
 # hard-erroring the way docmind_ingest.py does.
 LOGS="${LOGS:-$REPO/firecrest-mcp/logs}"
-STAGE="${STAGE:-/home/gavadala/Sviluppo/docmind-corpus-full}"
+STAGE="${STAGE:-${WORKSPACE_ROOT}/docmind-corpus-full}"
 CONTAINER="${CONTAINER:-docmind-ai-llm-app-1}"
-RESULT_FILE="${RESULT_FILE:-/home/gavadala/Sviluppo/docmind-corpus-full.result.json}"
-LOG="${LOG:-/home/gavadala/Sviluppo/docmind-corpus-full.log}"
+RESULT_FILE="${RESULT_FILE:-${WORKSPACE_ROOT}/docmind-corpus-full.result.json}"
+LOG="${LOG:-${WORKSPACE_ROOT}/docmind-corpus-full.log}"
 
 exec > >(tee -a "$LOG") 2>&1
 

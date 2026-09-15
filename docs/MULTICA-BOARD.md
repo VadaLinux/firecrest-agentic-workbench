@@ -56,9 +56,10 @@ generated `/tmp/multica-mcp-*/mcp-config.json` during a run.
 ## Documentation project: `~/Sviluppo/cscs-knowledge`
 
 A citation-grounded reference on how CSCS/Alps work, maintained by agents. Now pushed to
-**`github.com/VadaLinux76/cscs-knowledge`** (private, default branch `main`) — so an agent
+**`github.com/VadaLinux/cscs-knowledge`** (private, default branch `main`) — so an agent
 can `multica repo checkout` it and deliver via PR instead of writing in place. `gh` is
-authenticated as `VadaLinux76` and is already git's credential helper, so clone/push work
+authenticated as the account used when this report was written (since migrated to
+`VadaLinux`) and is already git's credential helper, so clone/push work
 without further setup.
 
 Populated by Mika in one run: 7 sections, 224 lines, 96 citations, 8 `[unverified]`

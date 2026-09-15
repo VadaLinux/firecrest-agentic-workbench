@@ -24,10 +24,11 @@
 
 set -uo pipefail
 
-REPO="${REPO:-/home/gavadala/Sviluppo/firecrest-agentic-workbench}"
-FIREREST_DEMO="${FIREREST_DEMO:-/home/gavadala/Sviluppo/firecrest/deploy/demo}"
-METAMCP_DIR="${METAMCP_DIR:-/home/gavadala/Sviluppo/metamcp}"
-DOCMIND_DIR="${DOCMIND_DIR:-/home/gavadala/Sviluppo/docmind-ai-llm}"
+REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${HOME}/Sviluppo}"
+FIREREST_DEMO="${FIREREST_DEMO:-${WORKSPACE_ROOT}/firecrest/deploy/demo}"
+METAMCP_DIR="${METAMCP_DIR:-${WORKSPACE_ROOT}/metamcp}"
+DOCMIND_DIR="${DOCMIND_DIR:-${WORKSPACE_ROOT}/docmind-ai-llm}"
 FIREREST_MCP_PORT="${FIREREST_MCP_PORT:-8765}"
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }

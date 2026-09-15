@@ -15,12 +15,12 @@
 #   scripts/fetch_duckdb_json_ext.sh
 #
 # Writes:
-#   /home/gavadala/Sviluppo/duckdb-extensions/json.duckdb_extension
+#   $HOME/Sviluppo/duckdb-extensions/json.duckdb_extension
 # and relabels it for SELinux (container_file_t) so the bind mount is readable.
 
 set -euo pipefail
 
-DEST_DIR="${DUCKDB_EXT_DIR:-/home/gavadala/Sviluppo/duckdb-extensions}"
+DEST_DIR="${DUCKDB_EXT_DIR:-${WORKSPACE_ROOT:-${HOME}/Sviluppo}/duckdb-extensions}"
 URL="${DUCKDB_EXT_URL:-https://extensions.duckdb.org/v1.3.2/linux_amd64/json.duckdb_extension.gz}"
 EXPECTED_SHA256="ebdced42fff071e7a9ac904347466dafb6e45c489453b0543ca6f150581fa167"
 

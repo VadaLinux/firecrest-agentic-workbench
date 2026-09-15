@@ -3,6 +3,10 @@
 # Kept separate from upstream's docker-compose.yml so the upstream file stays
 # diffable, and so every change we make is visible in one place.
 #
+# Before applying this file to another checkout, replace the absolute host paths in
+# its bind mounts with paths for that checkout. Compose cannot interpolate the host
+# portion of these mounts here without adding deployment-specific environment setup.
+#
 # Why each change is here:
 #
 # 1. `ollama` gets a second network.

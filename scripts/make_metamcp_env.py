@@ -8,13 +8,16 @@ metamcp/.env, which is gitignored.
 from __future__ import annotations
 
 import base64
+import os
 import re
 import secrets
 from pathlib import Path
 
-METAMCP = Path("/home/gavadala/Sviluppo/metamcp")
+REPO = Path(__file__).resolve().parent.parent
+WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", Path.home() / "Sviluppo"))
+METAMCP = Path(os.environ.get("METAMCP_DIR", WORKSPACE_ROOT / "metamcp"))
 ENV = METAMCP / ".env"
-SECRETS_DIR = Path("/home/gavadala/Sviluppo/firecrest-agentic-workbench/.secrets")
+SECRETS_DIR = Path(os.environ.get("SECRETS_DIR", REPO / ".secrets"))
 
 ADMIN_EMAIL = "admin@firecrest.local"
 
