@@ -1,6 +1,6 @@
 [Unit]
 Description=Safely fast-forward the FirecREST workbench clone to origin/main
-Documentation=https://github.com/VadaLinux76/firecrest-agentic-workbench
+Documentation=https://github.com/VadaLinux/firecrest-agentic-workbench
 # Every service that executes code from this clone requires this deploy first.
 Before=firecrest-docs-watch.service firecrest-reingest.service firecrest-workbench-stacks.service
 

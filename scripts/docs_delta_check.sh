@@ -5,7 +5,7 @@
 #
 # What it does:
 #   1. Read the baseline commit recorded at .bibliotecario/last-source-commit on
-#      origin/main of VadaLinux76/cscs-knowledge (read-only: `git show`, no checkout).
+#      origin/main of VadaLinux/cscs-knowledge (read-only: `git show`, no checkout).
 #   2. Fetch eth-cscs/cscs-docs and compare its origin/main HEAD against that baseline.
 #   3. Unchanged -> log and exit 0. No issue, no comment. The baseline lives in git,
 #      not in this schedule, so a missed or no-op night self-heals: the next run
