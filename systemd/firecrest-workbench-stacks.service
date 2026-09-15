@@ -15,12 +15,15 @@ Documentation=https://github.com/VadaLinux76/firecrest-agentic-workbench/blob/ma
 # need it, and `restorecon` would undo it. A user unit runs in the user's own domain,
 # which is allowed to execute what the user owns. `loginctl enable-linger gavadala` makes
 # it start at boot without a login.
-After=default.target
+Requires=firecrest-workbench-deploy.service
+After=default.target firecrest-workbench-deploy.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=%h/Sviluppo/firecrest-agentic-workbench/scripts/workbench-up.sh
+# The shared lock prevents a later deployment from changing this clone while the
+# bring-up script is still reading it.
+ExecStart=/usr/bin/flock --shared %t/firecrest-workbench-deploy.lock %h/Sviluppo/firecrest-agentic-workbench/scripts/workbench-up.sh
 # First boot after a long shutdown can take a while: the demo stack has 15 containers and
 # the cluster container may rebuild. Generous, because a timeout here would leave the
 # workstation half-up with no obvious signal.

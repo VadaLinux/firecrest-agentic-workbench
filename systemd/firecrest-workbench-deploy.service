@@ -1,0 +1,15 @@
+[Unit]
+Description=Safely fast-forward the FirecREST workbench clone to origin/main
+Documentation=https://github.com/VadaLinux76/firecrest-agentic-workbench
+# Every service that executes code from this clone requires this deploy first.
+Before=firecrest-docs-watch.service firecrest-reingest.service firecrest-workbench-stacks.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Sviluppo/firecrest-agentic-workbench
+ExecStart=%h/Sviluppo/firecrest-agentic-workbench/scripts/deploy_origin_main.sh
+# A deployment may wait for an already-running workload's shared source-tree lock.
+TimeoutStartSec=30min
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=firecrest-workbench-deploy
