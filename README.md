@@ -142,5 +142,7 @@ See [`CSCS-PROPOSAL.md`](./CSCS-PROPOSAL.md) for the pitch text and the [prepara
 
 ## License
 
-No license has been selected or committed yet. Until the repository owner chooses one,
-the code is not licensed for reuse; upstream components retain their own licenses.
+[Apache License 2.0](./LICENSE) for everything authored in this repo — see [`NOTICE`](./NOTICE)
+for the copyright notice and the upstream components' own licenses (FirecREST: BSD-3-Clause;
+Multica: Apache-2.0 with additional conditions; MetaMCP: MIT; DocMind: MIT). None of them are
+vendored here; this repository only configures and calls them.
