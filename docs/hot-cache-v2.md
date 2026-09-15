@@ -132,15 +132,34 @@ yaml.constructor.ConstructorError: could not determine a constructor for the tag
 So, **as shipped, every `/boot` call breaks the `firecrest` process it just tried to
 start.** `/boot`'s own HTTP response is unaffected (it succeeds and returns a token
 before the restart happens), which makes the failure easy to miss — the wizard
-*looks* like it worked. The workaround used for the rest of this document: load the
-written YAML with `yaml.unsafe_load` (safe here — it's the app's own config, not
-untrusted input), convert every `Enum` to its `.value`, re-dump with `yaml.safe_dump`,
-then restart the `firecrest` process via its supervisor RPC interface
-(`http://127.0.0.1:9001/RPC2`, `dummy`/`dummy`, the same interface `/boot` itself
-calls). No source file in the image was modified — only the generated
-`/app/config/app-config.yaml`. Worth reporting upstream: it means the demo's own
-guided path does not produce a working FirecREST v2 instance without manual
-intervention, on this revision.
+*looks* like it worked. The workaround used for the rest of this document: register a
+multi-constructor on `yaml.SafeLoader` that unwraps any `!!python/object/apply:` node
+to its single scalar argument, re-dump with `yaml.safe_dump`, then restart the
+`firecrest` process via its supervisor RPC interface (`http://127.0.0.1:9001/RPC2`,
+`dummy`/`dummy`, the same interface `/boot` itself calls). No source file in the image
+was modified — only the generated `/app/config/app-config.yaml`.
+
+> **Corrected on re-verification (2026-09-15, VDLP-43).** An earlier revision of this
+> file described the workaround as `yaml.unsafe_load` + Enum-to-`.value` conversion.
+> That only works with `/app` as the working directory: the tags name the app's own
+> modules, so from anywhere else `unsafe_load` fails with
+> `ConstructorError: ... cannot find module 'lib.models.token_endpoint_auth_method'
+> (No module named 'lib')`. The `SafeLoader` multi-constructor above has no such
+> dependency. Re-verified the same day: `/boot` still breaks `firecrest` on the
+> unmodified image, twice in a row across the same container.
+
+Worth reporting upstream: it means the demo's own guided path does not produce a
+working FirecREST v2 instance without manual intervention, on this revision. Full
+bug report with the verbatim traceback, the malformed YAML, and the probable cause
+in `launcher/main.py:291-294`:
+`docs/upstream/01-boot-writes-unloadable-yaml.md`.
+
+A second `/boot` in the same container returns **`500`**, not `200` — a different
+fault in the same handler: `launcher/main.py:303-306` guards the `firecrest-ui`
+restart only against `RUNNING`, so when it is `STARTING` the stop is skipped and
+`startProcess` raises `xmlrpc.client.Fault: <Fault 60: 'ALREADY_STARTED:
+firecrest-ui'>`. The config file is rewritten with the bad tags before the fault, so
+the YAML bug applies either way.
 
 Once the process is actually up, `GET /openapi.json` on port 5025 answers with the
 real, current v2 surface — 33 paths, matching what's exercised below.
@@ -189,6 +208,15 @@ with no `size` at all therefore always fails on this demo's own stock config:
 {"errorType": "error", "message": "`size` value must be less than 1048576 bytes", ...}
 ```
 
+Re-verified 2026-09-15 (VDLP-43) on the unmodified image: the same call with an
+explicit `size=100` returns `200 {"output":"hello-from-vdlp43\n"}`, which is what
+pins the default as the cause. `size=1048576` — *exactly* the ceiling — also
+succeeds, so the check is `>` and the message's "must be less than" is off by one
+against its own code. Full bug report:
+`docs/upstream/02-ops-view-default-size-exceeds-max-ops-file-size.md`. `/ops/view`
+is the only handler in `filesystem/ops/router.py` with this shape; `/ops/download`
+of an oversized file returns a correct `413`.
+
 `download_file(path)` → `GET /filesystem/{system}/ops/download?path=<path>` (small,
 synchronous, single response — this is the closest analogue to v1's
 `/utilities/download`):
@@ -211,13 +239,15 @@ inconsistency") **does not exist in v2**; one parameter name, uniformly.
 
 **v2 also has a second, asynchronous download path** — `POST
 /filesystem/{system}/transfer/download` — that returns a `transferDirectives`-shaped
-job description (confirmed by the validation error it gives when that field is
-omitted) rather than bytes directly; this is presumably the S3-presigned-URL path
-for large files (`data_operation.data_transfer` in cluster config points at an S3
+job description rather than bytes directly; this is the S3-presigned-URL path for
+large files (`data_operation.data_transfer` in cluster config points at an S3
 endpoint, `192.168.240.19:9000` by default, not present in a bare launcher
-container). Not exercised — no S3 backend was stood up for this — but its existence
-alongside the small-file `ops/download` is itself the finding: v2 splits "small file,
-synchronous" from "large file, async/S3" into two different endpoints; v1 had one.
+container). Its existence alongside the small-file `ops/download` is itself the
+finding: v2 splits "small file, synchronous" from "large file, async/S3" into two
+different endpoints; v1 had one.
+
+**Exercised end to end on 2026-09-15 (VDLP-43)** — it was previously unverified for
+want of an S3 backend. See §7 below.
 
 ## 4. Compute — FirecREST's own request/response shapes are genuine; the scheduler answering them is a scripted stand-in
 
@@ -339,6 +369,76 @@ absolute path, e.g. via `ops/ls` on a path it does know.
 it requires an absolute `working_directory` and rejects a relative one
 up front, rather than submitting a job whose output the client itself could
 never read back.
+
+## 7. Large-file download over S3 (`transfer/download`) — exercised, 2026-09-15 (VDLP-43)
+
+Previously recorded as never exercised (`docs/reports/05-firecrest-v2-gap.md`).
+It now has been, against the MinIO already running as part of the **v1** stack —
+**without reconfiguring v1**: only the v2 demo's own
+`/app/config/app-config.yaml` was pointed at it, over the host-gateway address
+(`172.23.0.1:9000`), which is already routable from both v2 containers. MinIO's
+own credentials (`MINIO_ROOT_USER=storage_access_key`,
+`MINIO_ROOT_PASSWORD=storage_secret_key`) had to be mirrored into the v2 config;
+the value the v2 demo ships for `secret_access_key` does not match them.
+
+```bash
+curl -s -X POST "http://localhost:5025/filesystem/fakecluster/transfer/download" \
+  -H "Authorization: Bearer ***" -H "Content-Type: application/json" \
+  -d '{"sourcePath":"/home/demo/vdlp43-big.bin","transferDirectives":{"transferMethod":"s3"}}'
+```
+```json
+{"transferJob": {"jobId": "6", "system": "fakecluster",
+                 "workingDirectory": "/home/demo",
+                 "logs": {"outputLog": "/home/demo/.f7t_file_handling_job_<uuid>.log",
+                          "errorLog": "/home/demo/.f7t_file_handling_job_error_<uuid>.log"}},
+ "transferDirectives": {"transferMethod": "s3",
+   "downloadUrl": "http://172.23.0.1:9000/demo/<uuid>/vdlp43-big.bin?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=storage_access_key%2F...&X-Amz-Expires=604800&X-Amz-Signature=..."}}
+```
+HTTP `201`. Four things this confirms, none of which were previously verified:
+
+1. **It is genuinely asynchronous and scheduler-backed.** The response is not
+   bytes; it is a *job*. `GET /compute/{system}/jobs/6` shows a real
+   `OutgressFileTransfer` job (`state: COMPLETED`, `exitCode: 0`). The bytes move
+   because a batch job on the cluster pushes them to S3 — the API never proxies
+   them.
+2. **The upload is a presigned multipart PUT done by the job itself**, from
+   `job_s3_uploader_multipart.sh`. The job log is explicit, and its ETag matches
+   the source file's md5 exactly:
+   ```
+   Uploading file:/home/demo/vdlp43-big.bin into 1 chunks
+   [INFO] Upload of part 1 succeded with ETag: eff14367fa0af4e12771e25e8eb538f8|
+   [INFO] Multipart file upload successfully completed
+   ```
+3. **`downloadUrl` is a presigned GET valid for `ttl` seconds** (604800 here). A
+   plain `curl` of it returned the 2 MiB file with md5
+   `eff14367fa0af4e12771e25e8eb538f8`, identical to the source.
+4. **The presigned URL's host is part of the signature.** Rewriting
+   `172.23.0.1:9000` → `localhost:9000` (the same MinIO, reached from the host)
+   gives `403 SignatureDoesNotMatch`. So `data_transfer.public_url` must be an
+   address the *end client* can resolve verbatim — this is the one v2 config value
+   that cannot be fixed up client-side.
+
+**One first-call failure worth knowing about, on a fresh bucket.** The very first
+`transfer/download` for a user whose bucket does not yet exist returned `500`:
+
+```json
+{"errorType":"error","message":"('An error occurred (MissingContentMD5) when calling the PutBucketLifecycleConfiguration operation: Missing required header for this request: Content-Md5.',)"}
+```
+
+`lib/datatransfers/s3/s3_datatransfer.py` calls `create_bucket` then
+`put_bucket_lifecycle_configuration`; this MinIO release
+(`RELEASE.2022-10-24T18-35-07Z`, the one the **v1** stack pins) requires a
+`Content-Md5` header on that call and rejects it. The bucket *is* created before
+the failure, so the immediately following identical request succeeds. Whether
+current MinIO or real S3 behaves the same way is untested — this may be an
+artefact of pairing v2 with v1's old MinIO rather than an upstream defect, so it
+is **not** being filed as a bug report. Flagged here so nobody rediscovers it.
+
+**Caveat that applies to all of the above:** the scheduler running the transfer
+job is this document's scripted stand-in, which executes the batch script inline
+and synchronously. The FirecREST request/response shapes, the presigned URLs, the
+multipart upload, and the resulting object in S3 are all real; the *scheduling* of
+the transfer job is not.
 
 ## Footnote: the fake scheduler's known gap
 
