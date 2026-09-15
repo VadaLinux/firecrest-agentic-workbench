@@ -38,6 +38,17 @@ Issue / natural-language request
 
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full breakdown of each component and why it's there.
 
+## Where this was built
+
+This workbench was built and exercised on an HP ZBook 17 G3: Intel i7-6820HQ (4 cores / 8 threads, 2.70 GHz), 31 GiB RAM and a 464 GB NVMe.
+It runs openSUSE Leap 16.0 with kernel 6.12.0, Docker 29.4.0-ce and Compose 2.33.1, with SELinux enforcing throughout.
+The GPU is an NVIDIA Quadro M3000M (Maxwell, compute capability 5.2, 4 GiB VRAM), driver 580.178.04 and CUDA 13.0.
+At the measurement on 2026-09-15, 24 containers were active: 15 FirecREST demo, 4 DocMind, 3 Multica and 2 MetaMCP.
+The same host also has Ollama with `qwen3:4b-instruct` installed locally.
+Multica assigns issues to agents here, records their execution, and requires human review before a merge.
+The commits in this repository are products of that local orchestration cycle, rather than of a cluster build environment.
+For the measured environment, reproducible setup sequence and SELinux volume handling, see [`docs/ENVIRONMENT.md`](./docs/ENVIRONMENT.md).
+
 ## Components
 
 | Component | Role | Repo |
