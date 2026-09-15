@@ -46,7 +46,7 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full breakdown of each compon
 | [Multica](https://github.com/multica-ai/multica) | Board where issues get assigned to Hermes like a teammate; Telegram channel | self-hosted (Docker) |
 | [MetaMCP](https://github.com/metatool-ai/metamcp) | Aggregates the FirecREST tool + DocMind tool behind one authenticated endpoint | self-hosted (Docker) |
 | [DocMind](https://github.com/BjornMelin/docmind-ai-llm) | Local-first RAG over FirecREST docs + job logs, so the agent doesn't hallucinate API parameters | self-hosted |
-| `firecrest-mcp/` (this repo) | Thin MCP wrapper over the FirecREST v2 OpenAPI spec | this repo |
+| `firecrest-mcp/` (this repo) | MCP wrapper with a v1.16.1 client for the learning demo and a selectable v2 client for Alps | this repo |
 | [FirecREST demo stack](https://github.com/eth-cscs/firecrest/tree/master/deploy/demo) | Keycloak + Kong + dummy Slurm cluster, runs fully offline | eth-cscs/firecrest |
 
 ## Repo layout
@@ -114,26 +114,33 @@ Full step-by-step: [`prompts/00-overview.md`](./prompts/00-overview.md).
 | 02 | `firecrest-mcp` wrapper | done | [`02-firecrest-mcp-wrapper.md`](./docs/reports/02-firecrest-mcp-wrapper.md) |
 | 03 | MetaMCP gateway | done | [`03-metamcp-setup.md`](./docs/reports/03-metamcp-setup.md) |
 | 04 | DocMind corpus + `query_docs` | done | [`04-docmind-corpus.md`](./docs/reports/04-docmind-corpus.md) |
-| 05 | Hermes ↔ MetaMCP | next | — |
-| 06 | Multica orchestration | pending | — |
-| 07 | Telegram channel | pending | — |
-| 08 | Failure scenario | pending | — |
+| 05 | Hermes ↔ MetaMCP | done | [`HERMES.md`](./docs/HERMES.md), [`e2e-test-transcript.md`](./docs/e2e-test-transcript.md) |
+| 06 | Multica orchestration | done and verified live | [`MULTICA.md`](./docs/MULTICA.md) |
+| 07 | Telegram channel | not started — requires a human to provide a BotFather token and bind the workspace channel | — |
+| 08 | Failure scenario | partial delivery — recorded directly against FirecREST; it still needs a Hermes re-run | [`failure-scenario-transcript.md`](./docs/failure-scenario-transcript.md) |
 
 The MetaMCP endpoint currently aggregates six tools: five from `firecrest-mcp` and
 `docmind__query_docs` from the local RAG corpus. Resume from
 [`docs/HANDOVER.md`](./docs/HANDOVER.md).
 
-**FirecREST v2 investigated (2026-09-12):** production Alps runs v2, not the v1.16.1
-this project's demo stack and `firecrest-mcp/` are built against (v1 was
-decommissioned on Alps on 2025-12-05). The v2 demo has been brought up and its
-calls verified against a running instance — [`docs/hot-cache-v2.md`](./docs/hot-cache-v2.md)
-— with a v1→v2 gap analysis and a design proposal (not yet implemented) for a
-second client in `firecrest-mcp/` —
-[`05-firecrest-v2-gap.md`](./docs/reports/05-firecrest-v2-gap.md). `firecrest-mcp/`
-itself is unchanged by this and still only speaks v1.
+**FirecREST versions:** the CSCS learning demo is v1.16.1, addressed with the
+`X-Machine-Name` header and served by `firecrest-mcp/client.py`. Production Alps is
+v2 (v1 was decommissioned there on 2025-12-05), addressed through `/{system}/...`
+paths and supported by the selectable `firecrest-mcp/client_v2.py`. The verified
+details are in [`docs/hot-cache.md`](./docs/hot-cache.md) and
+[`docs/hot-cache-v2.md`](./docs/hot-cache-v2.md).
+
+### Findings on the FirecREST demo stacks
+
+- The v2 launcher’s `/boot` dumper writes YAML its own FirecREST startup loader cannot read.
+- On the stock v2 configuration, `/ops/view` without `size` fails before applying its
+  5 MiB default: `{"errorType": "error", "message": "\`size\` value must be less than 1048576 bytes", ...}`.
+- Evidence, reproduction details, and scope are in [`hot-cache-v2.md`](./docs/hot-cache-v2.md)
+  and the [`v1 → v2 gap analysis`](./docs/reports/05-firecrest-v2-gap.md).
 
 See [`CSCS-PROPOSAL.md`](./CSCS-PROPOSAL.md) for the pitch text and the [preparation checklist](./prompts/00-overview.md) for what still needs to be built before the 3rd.
 
 ## License
 
-MIT for everything in this repo. Upstream components keep their own licenses (Multica: Apache 2.0 + additional conditions; MetaMCP: MIT; DocMind: MIT; FirecREST: BSD-3-Clause).
+No license has been selected or committed yet. Until the repository owner chooses one,
+the code is not licensed for reuse; upstream components retain their own licenses.
