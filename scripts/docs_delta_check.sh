@@ -31,6 +31,12 @@
 #   docs_delta_check.sh <baseline-sha> --dry-run    # same, but print the report
 #                                                    # instead of filing an issue.
 
+# shellcheck disable=SC2016
+# The printf format strings below are markdown and contain literal backticks.
+# Single quotes are required, not incidental: with double quotes the shell would
+# treat those backticks as command substitution. Values are passed as printf
+# arguments (%s), never interpolated into the format string.
+
 set -uo pipefail
 
 CSCS_DOCS_DIR="${CSCS_DOCS_DIR:-/home/gavadala/Sviluppo/cscs-docs}"
