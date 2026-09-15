@@ -11,12 +11,11 @@ and verified; nothing here is paraphrased from documentation.
 - **Gateway:** `http://localhost:8000` (Kong). Keycloak: `http://localhost:8080`. Keycloak admin: `http://localhost:8080` (`admin`/`admin2`)
 - **Verified on:** 2026-09-11, openSUSE Leap 16, Docker 29.4.0-ce, SELinux enforcing
 
-> Note: the repo README and `ARCHITECTURE.md` refer to "the FirecREST v2 OpenAPI spec".
-> The spec actually shipped in this demo revision is **v1.16.1**, and the endpoints differ
-> (`X-Machine-Name` header rather than a `{system}` path segment). Trust this file over the
-> prose.
+> This is the v1.16.1 reference for the learning demo. For the v2 client and
+> production-path reference, see `docs/hot-cache-v2.md`; the README and architecture
+> describe the split.
 >
-> **Upstream re-checked (2026-09-12): the discrepancy is real and has a direction.**
+> **Upstream re-checked (2026-09-12):**
 > CSCS's own documentation states, on `access/firecrest.md`, that "FirecREST version 1 was
 > decommissioned on Alps on December 5th, 2025", and that **version 2** is what is provided
 > on Alps. Production endpoints are v2 throughout —

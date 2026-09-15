@@ -10,5 +10,3 @@ firecrest/
 node_modules/
 __pycache__/
 *.pyc
-docs/e2e-test-transcript.md
-docs/failure-scenario-transcript.md

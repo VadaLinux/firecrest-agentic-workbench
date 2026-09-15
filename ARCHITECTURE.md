@@ -12,7 +12,11 @@
 
 ### FirecREST MCP wrapper (`firecrest-mcp/`)
 
-A thin Python MCP server built from the [FirecREST v2 OpenAPI spec](https://eth-cscs.github.io/firecrest-v2/) (optionally via [pyFirecREST](https://github.com/eth-cscs/pyfirecrest)). Exposes a small, deliberately minimal tool surface for the demo:
+A thin Python MCP server with two explicit API clients: `client.py` for the
+FirecREST v1.16.1 learning demo, which selects a machine with `X-Machine-Name`, and
+`client_v2.py` for production Alps, which selects it in `/{system}/...` paths.
+`FIRECREST_API_VERSION` selects the client; v1 remains the default so the demo path
+continues to work. Both expose the same deliberately minimal tool surface:
 
 - `submit_job(script, system, account)` → job ID
 - `get_job_status(job_id)` → state, timestamps
@@ -29,7 +33,7 @@ Runs as a single Docker container. Groups the FirecREST tool and the DocMind too
 
 Local-first RAG (LlamaIndex + Qdrant + LangGraph 4-role supervisor: planner, retrieval, synthesis, validator). Ingests:
 
-- the FirecREST v2 OpenAPI spec and getting-started docs
+- the FirecREST v1.16.1 demo and v2 production API references, with their versioned hot caches
 - the curated "hot cache" markdown (see below)
 - job logs written by the FirecREST MCP wrapper, so "why did job X fail" is answerable from real data, not speculation
 
@@ -37,7 +41,11 @@ Exposed to the agent as a `query_docs` tool via MetaMCP.
 
 ### The "hot cache" (llms.txt-style)
 
-A single curated markdown file (`docs/hot-cache.md`, generated during prep, not checked in raw) listing the 10–15 FirecREST calls and parameter patterns actually used in the demo. The agent checks this before falling back to full RAG retrieval over the whole OpenAPI spec — cuts latency and token cost, and gives a concrete talking point about cost/performance governance.
+Two curated markdown files: `docs/hot-cache.md` for the v1.16.1 demo and
+`docs/hot-cache-v2.md` for v2. They list the 10–15 FirecREST calls and parameter
+patterns verified for each API. The agent checks the applicable cache before falling
+back to full RAG retrieval over the relevant OpenAPI reference — cutting latency and
+token cost while keeping the version boundary explicit.
 
 ### Multica
 
