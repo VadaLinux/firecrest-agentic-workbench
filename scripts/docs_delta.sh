@@ -7,10 +7,12 @@
 # because an ingestion lasts minutes to hours, and anything that backgrounds-and-yields
 # from a session would be orphaned when that session's turn ends.
 #
-# Sequencing guard: while firecrest-reingest.timer still has a pending elapse (i.e. the
-# one-shot full re-ingestion is still scheduled), this exits without acting. Two
-# ingestions cannot overlap — the snapshot writer lock is exclusive — so the scheduled
-# full run must be allowed to go first.
+# Sequencing guard: firecrest-reingest.timer is a recurring nightly timer, so it
+# ALWAYS has a pending NextElapseUSecRealtime — that value alone can't tell "the
+# full run is imminent" from "the full run is 23 hours away". The guard therefore
+# only skips when that next elapse is within REINGEST_GUARD_WINDOW_SEC of now. Two
+# ingestions cannot overlap — the snapshot writer lock is exclusive — so when the
+# scheduled full run is about to fire, it must be allowed to go first.
 #
 # State: the last revision seen per source repo, in $STATE. A change is a HEAD move.
 #
@@ -31,15 +33,31 @@ SOURCE_SPECS=(
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
+# How close to the nightly full re-ingestion's next elapse counts as "imminent"
+# and worth deferring to. firecrest-reingest.timer fires once a day, so this only
+# needs to be wider than how often this watcher itself runs.
+REINGEST_GUARD_WINDOW_SEC="${REINGEST_GUARD_WINDOW_SEC:-5400}"  # 90 minutes
+
 # --------------------------------------------------- guard: don't collide with the
-# scheduled full re-ingestion
+# imminent scheduled full re-ingestion
 if systemctl --user list-timers firecrest-reingest.timer --all --no-legend 2>/dev/null \
         | grep -q firecrest-reingest; then
     NEXT=$(systemctl --user show firecrest-reingest.timer -p NextElapseUSecRealtime 2>/dev/null | cut -d= -f2)
     if [ -n "$NEXT" ]; then
-        log "SKIP: the one-shot full re-ingestion is still scheduled ($NEXT). Not acting."
-        log "      Two ingestions cannot overlap; the full run goes first."
-        exit 0
+        NEXT_EPOCH=$(date -d "$NEXT" +%s 2>/dev/null || true)
+        NOW_EPOCH=$(date +%s)
+        if [ -n "$NEXT_EPOCH" ]; then
+            DELTA=$(( NEXT_EPOCH - NOW_EPOCH ))
+            if [ "$DELTA" -ge 0 ] && [ "$DELTA" -lt "$REINGEST_GUARD_WINDOW_SEC" ]; then
+                log "SKIP: the nightly full re-ingestion is imminent ($NEXT, in $((DELTA / 60))min). Not acting."
+                log "      Two ingestions cannot overlap; the full run goes first."
+                exit 0
+            else
+                log "INFO: nightly full re-ingestion next elapse is $NEXT (in $((DELTA / 60))min, outside the ${REINGEST_GUARD_WINDOW_SEC}s guard window) — proceeding."
+            fi
+        else
+            log "WARN: could not parse NextElapseUSecRealtime ('$NEXT') — proceeding without the timer guard."
+        fi
     fi
 fi
 
