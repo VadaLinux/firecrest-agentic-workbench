@@ -72,7 +72,11 @@ compose_up() {
     log "starting $name"
     compose_in "$dir" up -d 2>&1 | sed 's/^/    /' | tail -5
     local rc=${PIPESTATUS[0]}
-    [ "$rc" -eq 0 ] && log "$name up" || log "WARNING: $name exited $rc"
+    if [ "$rc" -eq 0 ]; then
+        log "$name up"
+    else
+        log "WARNING: $name exited $rc"
+    fi
     return 0
 }
 

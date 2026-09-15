@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from metamcp_admin import ADMIN_PREFIX, Admin, api_key, parse_result  # noqa: E402
+from metamcp_admin import Admin, api_key  # noqa: E402
 
 ENDPOINT = "http://localhost:12008/metamcp/firecrest-workbench/mcp"
 EXPECTED = {

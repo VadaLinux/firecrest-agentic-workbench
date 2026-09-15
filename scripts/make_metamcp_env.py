@@ -8,7 +8,6 @@ metamcp/.env, which is gitignored.
 from __future__ import annotations
 
 import base64
-import os
 import re
 import secrets
 from pathlib import Path
