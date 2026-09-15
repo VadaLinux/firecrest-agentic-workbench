@@ -28,7 +28,7 @@ a partial delivery.
   running daemon (`server_url: http://localhost:8081`, uptime ~24 h) with three
   registered agent providers (`claude`, `hermes`, `codex`).
 - **Hermes connected as a runtime and visible on the board.** `multica runtime list`
-  shows `Hermes (VadaLinux.lan)` (`be5af7cd-f432-49ce-b4ec-f52501904226`,
+  shows the Hermes runtime (`be5af7cd-f432-49ce-b4ec-f52501904226`,
   provider `hermes`) with `status: online`, alongside the Claude Code and Codex
   runtimes — all three `online` as of this check.
 - **Test issue filed → picked up → worked → review, with zero manual steps beyond
@@ -123,7 +123,7 @@ firecrest__submit_job
 ## Bringing it all back up
 
 **This is now automatic.** Two systemd *user* units bring everything up at boot, without
-a login, via `loginctl enable-linger gavadala`:
+a login, via `loginctl enable-linger <user>`:
 
 | Unit | Scope | Role |
 |---|---|---|
@@ -228,7 +228,7 @@ cd ~/Sviluppo/firecrest-agentic-workbench
 
 ## Things that will bite if forgotten
 
-- **`sg docker -c "..."`** — `gavadala` is in the `docker` group but the shell session
+- **`sg docker -c "..."`** — the user is in the `docker` group but the shell session
   predates it, so bare `docker` fails. Alternatively re-login.
 - **`docker compose`**, never `docker-compose` — the hyphenated binary does not exist on
   this host.

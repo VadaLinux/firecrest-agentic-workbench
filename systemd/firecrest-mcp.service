@@ -1,6 +1,6 @@
 [Unit]
 Description=FirecREST MCP server (Streamable HTTP, port 8765)
-Documentation=https://github.com/VadaLinux76/firecrest-agentic-workbench
+Documentation=https://github.com/VadaLinux/firecrest-agentic-workbench
 # USER unit — see firecrest-workbench-stacks.service for why a system unit cannot work
 # here: the virtualenv this executes lives under the user's home, and a system unit's
 # init_t domain is denied execute and read on user_home_t.

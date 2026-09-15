@@ -1,6 +1,6 @@
 # GPU on this laptop: what actually works
 
-Measured on 2026-09-12, on `VadaLinux.lan` (openSUSE Leap 16, i7-6820HQ, Quadro M3000M).
+Measured on 2026-09-12 on the workbench host (openSUSE Leap 16, i7-6820HQ, Quadro M3000M).
 
 ## The premise was wrong
 

@@ -19,14 +19,15 @@
 
 set -uo pipefail
 
-REPO="${REPO:-/home/gavadala/Sviluppo/firecrest-agentic-workbench}"
-STATE="${STATE:-/home/gavadala/Sviluppo/docs-watch.state}"
+REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${HOME}/Sviluppo}"
+STATE="${STATE:-${WORKSPACE_ROOT}/docs-watch.state}"
 
 # Source trees the corpus is built from, and the upstream repos they come from.
 # "local_dir|upstream_clone_dir|github_url"
 SOURCE_SPECS=(
-    "/home/gavadala/Sviluppo/cscs-docs|/home/gavadala/Sviluppo/cscs-docs|https://github.com/eth-cscs/cscs-docs"
-    "/home/gavadala/Sviluppo/firecrest-v2-src|/home/gavadala/Sviluppo/firecrest-v2-upstream|https://github.com/eth-cscs/firecrest-v2"
+    "${WORKSPACE_ROOT}/cscs-docs|${WORKSPACE_ROOT}/cscs-docs|https://github.com/eth-cscs/cscs-docs"
+    "${WORKSPACE_ROOT}/firecrest-v2-src|${WORKSPACE_ROOT}/firecrest-v2-upstream|https://github.com/eth-cscs/firecrest-v2"
 )
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }

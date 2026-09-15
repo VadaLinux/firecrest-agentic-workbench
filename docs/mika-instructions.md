@@ -38,15 +38,15 @@ A project groups work and carries **resources** — durable context injected int
 
 ```bash
 multica project resource add <project-id> --type github_repo \
-  --url https://github.com/VadaLinux76/firecrest-agentic-workbench --output json
+  --url https://github.com/VadaLinux/firecrest-agentic-workbench --output json
 multica project resource add <project-id> --type github_repo \
-  --url https://github.com/VadaLinux76/cscs-knowledge --ref main --output json
+  --url https://github.com/VadaLinux/cscs-knowledge --ref main --output json
 multica project resource add <project-id> --type local_directory \
-  --local-path /home/gavadala/Sviluppo/firecrest-agentic-workbench \
+  --local-path "$HOME/Sviluppo/firecrest-agentic-workbench" \
   --daemon-id <daemon-id> --output json
 ```
 
-The *FirecREST workbench* project already has the resource `github_repo → VadaLinux76/cscs-knowledge` bound; that is the project whose description you read as task context. New work in that project automatically gets the repo checkout and the description injected. When an issue needs a repo that the project has not bound, add the resource once — do not re-bind it in every task.
+The *FirecREST workbench* project already has the resource `github_repo → VadaLinux/cscs-knowledge` bound; that is the project whose description you read as task context. New work in that project automatically gets the repo checkout and the description injected. When an issue needs a repo that the project has not bound, add the resource once — do not re-bind it in every task.
 
 A project's `description` is injected as `## Project Context` into every bound issue. Use it for rules that should apply to every task in the project, and keep the rest in the issue body.
 

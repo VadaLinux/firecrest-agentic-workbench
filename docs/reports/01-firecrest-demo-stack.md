@@ -3,7 +3,7 @@
 **Task:** `prompts/01-firecrest-demo-stack.md`
 **Status:** complete, with three declared deviations (see §6)
 **Date:** 2026-09-11
-**Repo:** https://github.com/VadaLinux76/firecrest-agentic-workbench
+**Repo:** https://github.com/VadaLinux/firecrest-agentic-workbench
 **Commit at time of writing:** `0a3e3e9`
 
 ---

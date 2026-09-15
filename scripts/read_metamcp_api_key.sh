@@ -6,7 +6,8 @@
 # quoting that survives two shells (this script, then `sg docker -c ...`).
 set -euo pipefail
 
-SECRETS=/home/gavadala/Sviluppo/firecrest-agentic-workbench/.secrets
+REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+SECRETS="${SECRETS:-${REPO}/.secrets}"
 mkdir -p "$SECRETS"
 
 SQL=/tmp/metamcp_keyquery.sql
