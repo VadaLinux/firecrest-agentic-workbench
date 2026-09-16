@@ -39,8 +39,9 @@
 
 set -uo pipefail
 
-CSCS_DOCS_DIR="${CSCS_DOCS_DIR:-/home/gavadala/Sviluppo/cscs-docs}"
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-/home/gavadala/Sviluppo/cscs-knowledge}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${HOME}/Sviluppo}"
+CSCS_DOCS_DIR="${CSCS_DOCS_DIR:-${WORKSPACE_ROOT}/cscs-docs}"
+KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-${WORKSPACE_ROOT}/cscs-knowledge}"
 UPSTREAM_REPO="${UPSTREAM_REPO:-eth-cscs/cscs-docs}"
 BASELINE_PATH=".bibliotecario/last-source-commit"
 

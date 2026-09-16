@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-REPO="${REPO:-/home/gavadala/Sviluppo/firecrest-agentic-workbench}"
+REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 LOCK_FILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/firecrest-workbench-deploy.lock"
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }

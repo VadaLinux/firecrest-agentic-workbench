@@ -1,6 +1,6 @@
 [Unit]
 Description=Deterministic nightly report for DocMind re-ingestion (VDLP-19)
-Documentation=file:///home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/nightly_report.sh
+Documentation=https://github.com/VadaLinux/firecrest-agentic-workbench/blob/main/scripts/nightly_report.sh
 # Replaces the "nightly report — {{date}}" autopilot (32456996-5afc-446f-87e4-88e722b00294).
 # No LLM in this path: scripts/nightly_report.sh derives its own target night from
 # the last "nightly report — DATE" issue it filed (so a skipped morning is recovered,

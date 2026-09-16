@@ -42,8 +42,9 @@ set -uo pipefail
 
 TZ_NAME="Europe/Zurich"
 CONTAINER="${CONTAINER:-docmind-ai-llm-app-1}"
-HOST_LOG="${HOST_LOG:-/home/gavadala/Sviluppo/docmind-corpus-full.log}"
-RESULT_FILE="${RESULT_FILE:-/home/gavadala/Sviluppo/docmind-corpus-full.result.json}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${HOME}/Sviluppo}"
+HOST_LOG="${HOST_LOG:-${WORKSPACE_ROOT}/docmind-corpus-full.log}"
+RESULT_FILE="${RESULT_FILE:-${WORKSPACE_ROOT}/docmind-corpus-full.result.json}"
 DOCKER() { sg docker -c "$*"; }
 
 # multica issue create --description-file refuses a path outside the CLI's

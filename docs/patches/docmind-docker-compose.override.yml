@@ -3,9 +3,9 @@
 # Kept separate from upstream's docker-compose.yml so the upstream file stays
 # diffable, and so every change we make is visible in one place.
 #
-# Before applying this file to another checkout, replace the absolute host paths in
-# its bind mounts with paths for that checkout. Compose cannot interpolate the host
-# portion of these mounts here without adding deployment-specific environment setup.
+# Set WORKBENCH_ROOT to this repository's checkout and DUCKDB_EXT_DIR to the directory
+# containing json.duckdb_extension. Docker Compose interpolates both variables in the
+# bind mounts below; set them in the shell or in the .env next to the compose file.
 #
 # Why each change is here:
 #
@@ -136,8 +136,8 @@ services:
       DOCMIND_RETRIEVAL__USE_RERANKING: "false"
     volumes:
       - docmind_data:/app/data
-      - /home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/docmind_mcp.py:/app/docmind_mcp.py:ro
-      - /home/gavadala/Sviluppo/firecrest-agentic-workbench/scripts/docmind_query.py:/app/docmind_query.py:ro
+      - ${WORKBENCH_ROOT}/scripts/docmind_mcp.py:/app/docmind_mcp.py:ro
+      - ${WORKBENCH_ROOT}/scripts/docmind_query.py:/app/docmind_query.py:ro
     depends_on:
       ollama:
         condition: service_healthy
@@ -207,4 +207,4 @@ services:
     # and bound read-only, so a recreated container never has to fetch it again.
     # sha256: ebdced42fff071e7a9ac904347466dafb6e45c489453b0543ca6f150581fa167
     volumes:
-      - /home/gavadala/Sviluppo/duckdb-extensions/json.duckdb_extension:/home/docmind/.duckdb/extensions/v1.3.2/linux_amd64/json.duckdb_extension:ro
+      - ${DUCKDB_EXT_DIR}/json.duckdb_extension:/home/docmind/.duckdb/extensions/v1.3.2/linux_amd64/json.duckdb_extension:ro
