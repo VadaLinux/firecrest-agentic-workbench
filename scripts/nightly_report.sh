@@ -174,11 +174,15 @@ if [ -z "$TARGET_DATE" ]; then
 fi
 log "  target date: $TARGET_DATE"
 
-# The night this report covers is target_date-1 22:00 through target_date 08:00,
+# The night this report covers is target_date-1 20:00 through target_date 06:00,
 # Europe/Zurich (matches the 22:00/23:00 nightly schedule with slack either side).
+# WINDOW_END must precede the 07:00 systemd timer (firecrest-nightly-report.timer)
+# so the window is already closed when the timer fires on the target morning.
+WINDOW_START_TIME="${WINDOW_START_TIME:-20:00:00}"
+WINDOW_END_TIME="${WINDOW_END_TIME:-06:00:00}"
 PREV_DATE=$(date -u -d "$TARGET_DATE - 1 day" +%F)
-WINDOW_START_EPOCH=$(date -d "TZ=\"$TZ_NAME\" $PREV_DATE 20:00:00" +%s)
-WINDOW_END_EPOCH=$(date -d "TZ=\"$TZ_NAME\" $TARGET_DATE 08:00:00" +%s)
+WINDOW_START_EPOCH=$(date -d "TZ=\"$TZ_NAME\" $PREV_DATE $WINDOW_START_TIME" +%s)
+WINDOW_END_EPOCH=$(date -d "TZ=\"$TZ_NAME\" $TARGET_DATE $WINDOW_END_TIME" +%s)
 NOW_EPOCH=$(date +%s)
 
 if [ "$NOW_EPOCH" -lt "$WINDOW_END_EPOCH" ]; then
@@ -203,7 +207,7 @@ fi
 log "  $DELTA_LINE"
 
 # ---------------------------------------------------------- 3. ingestion log window
-log "--- scanning $HOST_LOG for runs in [$PREV_DATE 20:00, $TARGET_DATE 08:00] $TZ_NAME"
+log "--- scanning $HOST_LOG for runs in [$PREV_DATE $WINDOW_START_TIME, $TARGET_DATE $WINDOW_END_TIME] $TZ_NAME"
 LOG_SECTION=""
 if [ -f "$HOST_LOG" ]; then
     LOG_SECTION=$(awk -v start="$WINDOW_START_EPOCH" -v end="$WINDOW_END_EPOCH" -v tz="$TZ_NAME" '
