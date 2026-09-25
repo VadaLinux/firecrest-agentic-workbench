@@ -96,6 +96,8 @@ services:
   docmind-mcp:
     image: docmind-mcp:dev
     working_dir: /app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command:
       - /app/.venv/bin/python
       - /app/docmind_mcp.py
@@ -122,10 +124,10 @@ services:
       # The key is interpolated from the environment at `docker compose` time and never
       # written into this file, which is committed.
       DOCMIND_OPENAI__BASE_URL: ${DOCMIND_OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
-      DOCMIND_OPENAI__API_KEY: ${OPENROUTER_API_KEY:-}
+      DOCMIND_OPENAI__API_KEY: ${DOCMIND_OPENAI_API_KEY:-}
       DOCMIND_DATABASE__QDRANT_URL: http://qdrant:6333
       DOCMIND_SECURITY__ALLOW_REMOTE_ENDPOINTS: "true"
-      DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama","https://openrouter.ai"]'
+      DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama","https://openrouter.ai","http://host.docker.internal"]'
       DOCMIND_ENABLE_GPU_ACCELERATION: "false"
       # Same inference budget as `app`, for the same reasons — see note 4 above.
       DOCMIND_LLM_REQUEST__CONTEXT_WINDOW: "16384"
@@ -166,6 +168,8 @@ services:
       - no-new-privileges:true
 
   app:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       # See the docmind-mcp block above for why the backend is selectable and why
       # synthesis may be moved to OpenRouter while embeddings stay local.
@@ -190,11 +194,11 @@ services:
       # added for the same reason — it is an intentional external endpoint, not an
       # implicit egress.
       DOCMIND_SECURITY__ALLOW_REMOTE_ENDPOINTS: "true"
-      DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama","https://openrouter.ai"]'
+      DOCMIND_SECURITY__ENDPOINT_ALLOWLIST: '["http://localhost","http://127.0.0.1","https://localhost","https://127.0.0.1","http://ollama","https://openrouter.ai","http://host.docker.internal"]'
       # OpenRouter rides the openai_compatible backend. Key interpolated at compose time
       # from the environment, never stored in this committed file.
       DOCMIND_OPENAI__BASE_URL: ${DOCMIND_OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
-      DOCMIND_OPENAI__API_KEY: ${OPENROUTER_API_KEY:-}
+      DOCMIND_OPENAI__API_KEY: ${DOCMIND_OPENAI_API_KEY:-}
 
       DOCMIND_DATABASE__QDRANT_URL: http://qdrant:6333
 

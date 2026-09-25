@@ -67,3 +67,5 @@ The suite contains 44 tests in this revision. The required acceptance result is 
 ## Replacing local inference
 
 The development environment can point DocMind and the agent at CSCS's inference service without changing the wrapper. Follow [INFERENCE.md](INFERENCE.md) for the exact environment variables, model identifiers and the explicitly unverified credential-dependent path; do not duplicate secrets in this repository.
+
+Furthermore, an experimental local proxy override is supported via OmniRoute. To engage it, use the provided `.env.example` in the root folder. Refer to [INFERENCE.md](INFERENCE.md) for networking caveats (e.g. `0.0.0.0` vs loopback bridge binding).
