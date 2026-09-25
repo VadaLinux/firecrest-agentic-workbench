@@ -1,0 +1,1 @@
+"""FirecREST agentic orchestration scaffold."""
