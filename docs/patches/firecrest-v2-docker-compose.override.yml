@@ -1,14 +1,14 @@
 # Local override for eth-cscs/firecrest-v2's own docker-compose.yml.
 #
-# Kept separate from the upstream clone so that clone stays untouched and
-# diffable, per this project's "never modify a cloned upstream repo" rule
-# (see prompts/01-firecrest-demo-stack.md step 6, extended here to the v2
-# clone). Apply with:
+# Kept separate from the upstream clone so no upstream tracked content is
+# edited. `scripts/env_v2.sh` does apply host-local permission and (when
+# enforcing) SELinux-label metadata needed for its bind mounts; see that
+# script's comments. Apply with:
 #
 #   docker compose -f docker-compose.yml \
 #     -f <this file> up -d firecrest slurm keycloak keycloak-create-user
 #
-# from inside the firecrest-v2-upstream checkout. scripts/env_v2_up.sh does
+# from inside the firecrest-v2-upstream checkout. `scripts/env_v2.sh` does
 # exactly that.
 #
 # Why each change is here:
@@ -44,7 +44,7 @@
 #
 # What is deliberately NOT here: PBS and MinIO are not part of the smoke
 # path (submit_job / poll / read output only needs firecrest + slurm +
-# keycloak), so scripts/env_v2_up.sh never starts them — this override
+# keycloak), so `scripts/env_v2.sh` never starts them — this override
 # doesn't need to touch them either.
 services:
   keycloak:

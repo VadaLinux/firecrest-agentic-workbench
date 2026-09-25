@@ -13,9 +13,9 @@ make env-down     # stops containers, preserves them for the next env-up
 ```
 
 The override maps Keycloak to `http://localhost:18080` because this workstation's
-Multica backend uses 8080. It keeps Docker builds amd64-only and the upstream clone
-unchanged. Under SELinux, `env-up` relabels only bind-mounted inputs as
-`container_file_t` (see `docs/ENVIRONMENT.md`).
+Multica backend uses 8080. It keeps Docker builds amd64-only and never edits upstream
+tracked content. `env-up` does adjust host-local key permissions and, under SELinux,
+bind-mount labels (`container_file_t`; see `docs/ENVIRONMENT.md`).
 
 ## Configure and smoke-test
 

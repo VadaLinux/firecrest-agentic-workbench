@@ -81,7 +81,7 @@ if [ ! -d "$F7T_V2_DIR/.git" ]; then
     mkdir -p "$WORKSPACE_ROOT"
     git clone --quiet "$F7T_V2_REPO_URL" "$F7T_V2_DIR" || fail "clone failed"
 else
-    log "reusing existing clone at $F7T_V2_DIR (not touching its contents, per project rule)"
+    log "reusing existing clone at $F7T_V2_DIR (tracked content untouched; host-local metadata may be adjusted)"
 fi
 
 # The clone ships test-only keys/secrets (fine — they're the upstream
@@ -123,13 +123,15 @@ log "starting: ${SERVICES[*]}"
 compose up -d "${SERVICES[@]}" || fail "up failed"
 
 log "waiting for firecrest gateway on :8000"
+code="000"
 for _ in $(seq 1 30); do
-    code="$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8000/status/systems 2>/dev/null || echo 000)"
+    code="$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8000/status/systems 2>/dev/null || true)"
     # 401 is the expected answer with no token — it proves the gateway is up
     # and enforcing auth, same shape as the v1 stack's own end-to-end check.
     [ "$code" = "401" ] && break
     sleep 2
 done
+[ "$code" = "401" ] || fail "gateway on :8000 did not become reachable (last HTTP code: ${code:-000})"
 
 status
 log "=== bring-up finished ==="
