@@ -23,17 +23,21 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 HERE = Path(__file__).resolve().parent.parent
-EXPECTED_TOOLS = {"submit_job", "get_job_status", "list_files", "download_file", "get_job_log"}
-
-JOB_SCRIPT = """#!/bin/bash
-#SBATCH --job-name=f7t-mcp-smoke
-#SBATCH --output=f7t-mcp-smoke.out
-#SBATCH --error=f7t-mcp-smoke.err
-#SBATCH --time=00:01:00
-#SBATCH --partition=part01
-
-echo hello-from-mcp
-"""
+EXPECTED_TOOLS = {
+    "submit_job",
+    "cancel_job",
+    "get_job_status",
+    "list_files",
+    "download_file",
+    "get_job_log",
+}
+V2_PARAMETERS = {
+    "nodes": 1,
+    "time_minutes": 1,
+    "partition": "part01",
+    "job_name": "f7t-mcp-smoke",
+    "message": "hello-from-mcp",
+}
 
 
 def show(label: str, payload) -> None:
@@ -71,8 +75,10 @@ async def main() -> int:
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             init = await session.initialize()
-            print(f"connected to {init.server_info.name} "
-                  f"(protocol {init.protocol_version})")
+            print(
+                f"connected to {init.server_info.name} "
+                f"(protocol {init.protocol_version})"
+            )
 
             listed = await session.list_tools()
             names = {t.name for t in listed.tools}
@@ -82,9 +88,22 @@ async def main() -> int:
                     f"tool surface mismatch: expected {sorted(EXPECTED_TOOLS)}, got {sorted(names)}"
                 )
 
-            submit = tool_result(await session.call_tool("submit_job", {
-                "script": JOB_SCRIPT, "system": "cluster",
-            }))
+            submit = tool_result(
+                await session.call_tool(
+                    "submit_job",
+                    {
+                        "template": "hello",
+                        "parameters": V2_PARAMETERS,
+                        "approved_by": "local-smoke",
+                        "system": os.environ.get(
+                            "FIRECREST_V2_SYSTEM", "cluster-slurm-api"
+                        ),
+                        "working_directory": os.environ.get(
+                            "FIRECREST_V2_WORKING_DIRECTORY", "/home/fireuser"
+                        ),
+                    },
+                )
+            )
             show("submit_job", submit)
             if not submit.get("ok"):
                 failures.append(f"submit_job failed: {submit.get('error')}")
@@ -92,9 +111,17 @@ async def main() -> int:
                 return 1
             jobid = submit["jobid"]
 
-            status = tool_result(await session.call_tool("get_job_status", {"job_id": jobid}))
+            state = None
+            status: dict = {}
+            for _ in range(30):
+                status = tool_result(
+                    await session.call_tool("get_job_status", {"job_id": jobid})
+                )
+                state = (status.get("job") or {}).get("state")
+                if state in {"COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"}:
+                    break
+                await asyncio.sleep(2)
             show("get_job_status", status)
-            state = (status.get("job") or {}).get("state")
             if state != "COMPLETED":
                 failures.append(f"job {jobid} state is {state!r}, expected COMPLETED")
 
@@ -102,9 +129,13 @@ async def main() -> int:
             show("get_job_log", log)
             stdout = (log.get("log") or {}).get("stdout") or ""
             if "hello-from-mcp" not in stdout:
-                failures.append(f"job stdout did not contain the expected marker: {stdout!r}")
+                failures.append(
+                    f"job stdout did not contain the expected marker: {stdout!r}"
+                )
 
-            files = tool_result(await session.call_tool("list_files", {"path": "/home"}))
+            files = tool_result(
+                await session.call_tool("list_files", {"path": "/home"})
+            )
             show("list_files", {k: v for k, v in files.items() if k != "entries"})
             if not files.get("ok"):
                 failures.append(f"list_files failed: {files.get('error')}")
@@ -112,7 +143,9 @@ async def main() -> int:
     if failures:
         print("\nFAILED:", *failures, sep="\n  ")
         return 1
-    print("\nOK: tool surface correct, job submitted, reached COMPLETED, output readable.")
+    print(
+        "\nOK: tool surface correct, job submitted, reached COMPLETED, output readable."
+    )
     return 0
 
 

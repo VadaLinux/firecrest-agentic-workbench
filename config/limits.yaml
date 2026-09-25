@@ -1,0 +1,5 @@
+max_nodes: 2
+max_time_minutes: 30
+allowed_partitions:
+  - part01
+  - part02

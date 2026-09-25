@@ -336,6 +336,18 @@ found`) because the stand-in only implements the handful of invocations the five
 calls above need. These are documented-and-implemented, not documented-but-missing —
 the gap is in the test double, not in FirecREST v2.
 
+### CRIGAMO-22 adapter contract
+
+`firecrest-mcp/client_v2.py` uses `pyfirecrest==3.10.0` exclusively for v2:
+`Firecrest.submit`, `job_info`, `job_metadata`, `head` and `cancel_job`. Its
+async MCP-facing methods delegate the synchronous client calls to worker
+threads. Job output is metadata followed by `head(..., num_bytes=65536)`, not
+`view`: the returned `truncated` field is true when a stream reaches that bound.
+This avoids the `ops/view` default-size defect above. Guardrails, typed template
+rendering and audit logging live in `src/fcagent/core/` and contain no FirecREST
+client imports. `make test-local` runs the v2 MCP lifecycle only after
+`make env-up` and local configuration are ready.
+
 ## 5. Error shape
 
 v2 errors are one consistent envelope everywhere, unlike v1's ad hoc

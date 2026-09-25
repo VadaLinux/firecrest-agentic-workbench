@@ -26,11 +26,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
 from mcp.server.mcpserver import MCPServer
 
 from client import FirecRESTClient, FirecRESTConfig, FirecRESTError
 from client import _load_dotenv as _load_env_file
 from client_v2 import FirecRESTClientV2, FirecRESTConfigV2
+from fcagent.core.audit import AuditLog
+from fcagent.core.jobs import JobService, PreparedSubmission
+from fcagent.core.settings import CoreSettings
 
 logger = logging.getLogger("firecrest-mcp")
 
@@ -90,15 +95,11 @@ async def get_client() -> FirecRESTClient | FirecRESTClientV2:
 
 
 def _fail(exc: Exception) -> dict[str, Any]:
-    """Turn a failure into something the agent can reason about and report."""
-    if isinstance(exc, FirecRESTError):
-        result: dict[str, Any] = {"ok": False, "error": str(exc)}
-        if exc.status is not None:
-            result["http_status"] = exc.status
-        if exc.body is not None:
-            result["detail"] = exc.body
-        return result
-    return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    """Return only a safe exception type and optional HTTP status to the agent."""
+    result: dict[str, Any] = {"ok": False, "error": type(exc).__name__}
+    if isinstance(exc, FirecRESTError) and exc.status is not None:
+        result["http_status"] = exc.status
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -108,7 +109,16 @@ def _fail(exc: Exception) -> dict[str, Any]:
 
 @server.tool()
 async def submit_job(
-    script: str, system: str, account: str | None = None, working_directory: str | None = None
+    script: str | None = None,
+    system: str | None = None,
+    account: str | None = None,
+    working_directory: str | None = None,
+    *,
+    template: str | None = None,
+    parameters: dict[str, Any] | None = None,
+    approved_by: str | None = None,
+    actor: str = "mcp",
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Submit a batch job script to the HPC cluster and get back its job id.
 
@@ -123,6 +133,11 @@ async def submit_job(
         #SBATCH --output=my-job.out
         #SBATCH --partition=part01
         echo hello
+
+    `template` must name a file in `templates/`; scripts passed directly are
+    rejected. Supply every declared, typed `parameters` value and `approved_by`.
+    Integer ranges, enum values and safe strings are validated before rendering.
+    `dry_run=true` applies the same guards and returns only the rendered script.
 
     `system` is the cluster to run on (`part01`/`part02` are the partitions of
     the demo system `cluster`). If you do not know the system name, call
@@ -147,11 +162,52 @@ async def submit_job(
     accept the job, so a returned job id is a real, queued job.
     """
     try:
+        if not system:
+            raise FirecRESTError("submit_job requires a target system")
+        if not template:
+            raise FirecRESTError("submit_job accepts only an approved template")
+        if parameters is None:
+            raise FirecRESTError("submit_job requires declared template parameters")
+        settings = CoreSettings.from_env()
+        service = JobService(
+            template_directory=settings.template_directory,
+            limits=settings.limits,
+            audit=AuditLog(settings.audit_path),
+            client=None,
+        )
+        prepared = service.prepare_submission(
+            actor=actor,
+            system=system,
+            template=template,
+            parameters=parameters,
+            approved_by=approved_by,
+            working_directory=working_directory or "",
+            dry_run=dry_run,
+        )
+        if dry_run:
+            return {"ok": True, **prepared}
+        assert isinstance(prepared, PreparedSubmission)
         client = await get_client()
-        kwargs: dict[str, Any] = {}
-        if isinstance(client, FirecRESTClientV2):
-            kwargs["working_directory"] = working_directory
-        result = await client.submit_job(script=script, system=system, account=account, **kwargs)
+        if not isinstance(client, FirecRESTClientV2):
+            raise FirecRESTError(
+                "approved-template submission requires FIRECREST_API_VERSION=v2"
+            )
+        result = await client.submit_job(
+            script=prepared.script,
+            system=system,
+            account=account,
+            working_directory=working_directory,
+            partition=prepared.partition,
+        )
+        service.audit.write(
+            actor=actor,
+            action="submit_job",
+            system=system,
+            template=template,
+            parameters_hash=prepared.parameters_hash,
+            job_id=result.jobid,
+            outcome="submitted",
+        )
         return {
             "ok": True,
             "jobid": result.jobid,
@@ -161,6 +217,25 @@ async def submit_job(
             "next_step": f"Call get_job_status with job_id={result.jobid} to watch it.",
         }
     except Exception as exc:  # noqa: BLE001 - surfaced to the agent as data
+        return _fail(exc)
+
+
+@server.tool()
+async def cancel_job(job_id: str) -> dict[str, Any]:
+    """Cancel a pending or running FirecREST v2 job by its job id.
+
+    Use this only when the user explicitly asks to stop, cancel or abort a job.
+    It is unavailable for the legacy FirecREST v1 demo transport. A successful
+    result confirms FirecREST accepted the cancellation request; call
+    get_job_status afterwards to observe the scheduler's final state.
+    """
+    try:
+        client = await get_client()
+        if not isinstance(client, FirecRESTClientV2):
+            raise FirecRESTError("cancel_job requires FIRECREST_API_VERSION=v2")
+        await client.cancel_job(job_id)
+        return {"ok": True, "jobid": job_id, "cancel_requested": True}
+    except Exception as exc:  # noqa: BLE001
         return _fail(exc)
 
 
@@ -315,13 +390,24 @@ async def get_job_log(job_id: str) -> dict[str, Any]:
 
 
 def _announce(mode: str) -> None:
-    tools = ["submit_job", "get_job_status", "list_files", "download_file", "get_job_log"]
+    tools = [
+        "submit_job",
+        "cancel_job",
+        "get_job_status",
+        "list_files",
+        "download_file",
+        "get_job_log",
+    ]
     print(f"firecrest-mcp server ({mode})", file=sys.stderr)
     for name in tools:
         print(f"  tool: {name}", file=sys.stderr)
     try:
         version = _api_version()
-        config = FirecRESTConfigV2.from_env() if version == "v2" else FirecRESTConfig.from_env()
+        config = (
+            FirecRESTConfigV2.from_env()
+            if version == "v2"
+            else FirecRESTConfig.from_env()
+        )
     except FirecRESTError as exc:
         print(f"  configuration: NOT READY — {exc}", file=sys.stderr)
         print(
@@ -337,7 +423,9 @@ def _announce(mode: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="MCP server exposing FirecREST to an agent.")
+    parser = argparse.ArgumentParser(
+        description="MCP server exposing FirecREST to an agent."
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
