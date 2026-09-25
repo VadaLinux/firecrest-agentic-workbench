@@ -34,7 +34,7 @@ EXPECTED_TOOLS = {
 V2_PARAMETERS = {
     "nodes": 1,
     "time_minutes": 1,
-    "partition": "debug",
+    "partition": "part01",
     "job_name": "f7t-mcp-smoke",
     "message": "hello-from-mcp",
 }
@@ -99,7 +99,7 @@ async def main() -> int:
                             "FIRECREST_V2_SYSTEM", "cluster-slurm-api"
                         ),
                         "working_directory": os.environ.get(
-                            "FIRECREST_V2_WORKING_DIRECTORY", "/home"
+                            "FIRECREST_V2_WORKING_DIRECTORY", "/home/fireuser"
                         ),
                     },
                 )
@@ -111,11 +111,17 @@ async def main() -> int:
                 return 1
             jobid = submit["jobid"]
 
-            status = tool_result(
-                await session.call_tool("get_job_status", {"job_id": jobid})
-            )
+            state = None
+            status: dict = {}
+            for _ in range(30):
+                status = tool_result(
+                    await session.call_tool("get_job_status", {"job_id": jobid})
+                )
+                state = (status.get("job") or {}).get("state")
+                if state in {"COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"}:
+                    break
+                await asyncio.sleep(2)
             show("get_job_status", status)
-            state = (status.get("job") or {}).get("state")
             if state != "COMPLETED":
                 failures.append(f"job {jobid} state is {state!r}, expected COMPLETED")
 

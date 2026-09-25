@@ -47,7 +47,7 @@ async def test_submit_job_dry_run_applies_guardrails_without_creating_client(
         parameters={
             "nodes": 1,
             "time_minutes": 1,
-            "partition": "debug",
+            "partition": "part01",
             "job_name": "test",
             "message": "bad;value",
         },
@@ -75,7 +75,7 @@ async def test_submit_job_dry_run_returns_only_the_rendered_approved_template(
         parameters={
             "nodes": 1,
             "time_minutes": 1,
-            "partition": "debug",
+            "partition": "part01",
             "job_name": "test",
             "message": "hello",
         },

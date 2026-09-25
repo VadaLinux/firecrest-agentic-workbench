@@ -9,7 +9,7 @@ parameters:
     max: 1440
   partition:
     type: enum
-    values: [debug, batch, gpu]
+    values: [part01, part02]
   job_name:
     type: string
   message:

@@ -40,7 +40,7 @@ class FakeFirecrest:
 
     def head(self, *args: Any, **kwargs: Any) -> dict[str, str]:
         self._call("head", *args, **kwargs)
-        return {"output": "hello-from-fcagent\n"}
+        return {"content": "hello-from-fcagent\n", "contentType": "bytes"}
 
     def cancel_job(self, *args: Any) -> dict[str, str]:
         self._call("cancel_job", *args)

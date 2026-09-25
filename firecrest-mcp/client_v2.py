@@ -281,9 +281,24 @@ class FirecRESTClientV2:
             return Path(output.name).read_bytes()
 
     async def get_job_log(self, job_id: str, system: str | None = None) -> JobLog:
-        """Read at most 64 KiB per stream using metadata then ``Firecrest.head``."""
+        """Read at most 64 KiB per stream, preferring ``job_metadata`` paths.
+
+        The "-api" (REST scheduler) system cannot expose job metadata
+        (``job_metadata`` answers 501 there — see docs/local-env.md), so when
+        metadata yields no paths this falls back to Slurm's own default
+        ``<working_directory>/slurm-<jobid>.out``, same as scripts/smoke_local.py.
+        """
         system = system or self.config.system
-        metadata = await self.get_job_metadata(job_id, system)
+        try:
+            metadata = await self.get_job_metadata(job_id, system)
+        except FirecRESTError:
+            metadata = {}
+        if not metadata.get("standardOutput") and not metadata.get("standardError"):
+            status = await self.get_job_status(job_id, system)
+            if status.working_directory:
+                metadata = {
+                    "standardOutput": f"{status.working_directory}/slurm-{job_id}.out"
+                }
         log = JobLog(jobid=str(job_id))
         for metadata_key, stream in (
             ("standardOutput", "stdout"),
@@ -294,7 +309,7 @@ class FirecRESTClientV2:
                     "head", system, remote_path, num_bytes=DEFAULT_OUTPUT_BYTES
                 )
                 text = (
-                    output.get("output", "")
+                    output.get("content", "")
                     if isinstance(output, dict)
                     else str(output)
                 )
