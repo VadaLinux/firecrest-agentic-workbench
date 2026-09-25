@@ -2,3 +2,5 @@ mcp>=2.0,<3
 httpx>=0.28
 pydantic>=2.0
 python-dotenv>=1.0
+PyYAML==6.0.3
+pyfirecrest==3.10.0
