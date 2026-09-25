@@ -71,9 +71,9 @@ def run_check():
     if api_key:
         req_cap.add_header("Authorization", f"Bearer {api_key}")
     try:
-        with urllib.request.urlopen(req_cap, timeout=3.0) as resp_cap:
+        with urllib.request.urlopen(req_cap, timeout=3.0):
              pass
-    except (HTTPError, URLError, TimeoutError, Exception) as e:
+    except (HTTPError, URLError, TimeoutError, Exception):
         print("unsupported/degraded")
         # Do not exit 1!
 

@@ -93,7 +93,7 @@ class TestOmnirouteCheck(unittest.TestCase):
             del env['OMNIROUTE_API_KEY']
         proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10)
         self.assertEqual(proc.returncode, 0)
-        
+
         auth_found = False
         for headers in SharedState.recorded_headers:
             if "Authorization" in headers:
