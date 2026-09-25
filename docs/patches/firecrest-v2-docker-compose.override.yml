@@ -1,0 +1,65 @@
+# Local override for eth-cscs/firecrest-v2's own docker-compose.yml.
+#
+# Kept separate from the upstream clone so no upstream tracked content is
+# edited. `scripts/env_v2.sh` does apply host-local permission and (when
+# enforcing) SELinux-label metadata needed for its bind mounts; see that
+# script's comments. Apply with:
+#
+#   docker compose -f docker-compose.yml \
+#     -f <this file> up -d firecrest slurm keycloak keycloak-create-user
+#
+# from inside the firecrest-v2-upstream checkout. `scripts/env_v2.sh` does
+# exactly that.
+#
+# Why each change is here:
+#
+# 1. Keycloak's host port moves 8080 -> 18080.
+#    This workbench's own Multica backend already binds 127.0.0.1:8080 (see
+#    docker-compose.yml at the repo root of the Multica deployment), so
+#    upstream's default publish collides with it. Only the HOST-side publish
+#    changes; every in-container reference to keycloak:8080 (the internal
+#    Docker network hostname) is untouched, so this cannot break service-to-
+#    service calls (slurm's OIDC_CERT_URLS, firecrest's tokenUrl in
+#    f7t-api-config.local-env.yaml). `!override` (not a plain merge) replaces
+#    the port list outright — YAML merge would otherwise keep 8080 published
+#    *in addition to* 18080.
+#
+# 2. KC_HOSTNAME follows the new port.
+#    Keycloak's own env file (build/docker/keycloak/keycloak.env, part of
+#    the untouched clone) sets KC_HOSTNAME=http://localhost:8080/auth. Left
+#    alone, tokens and realm metadata would advertise the wrong port to any
+#    client resolving issuer URLs from Keycloak's own responses. An explicit
+#    `environment:` key here takes precedence over `env_file:` (compose's
+#    documented precedence order), so this corrects it without touching the
+#    tracked env file.
+#
+# 3. slurm/pbs build for linux/amd64 only.
+#    Upstream's build.platforms lists amd64 *and* arm64. On an amd64-only
+#    Docker install (no buildx multi-arch emulation configured — the common
+#    case for a plain `docker compose build`), building the arm64 target
+#    fails outright ("exec format error") and aborts the whole `build`
+#    invocation, including the amd64 image that would otherwise succeed.
+#    `!override` restricts each service to the host's own architecture.
+#    Adjust or drop this block on an arm64 host.
+#
+# What is deliberately NOT here: PBS and MinIO are not part of the smoke
+# path (submit_job / poll / read output only needs firecrest + slurm +
+# keycloak), so `scripts/env_v2.sh` never starts them — this override
+# doesn't need to touch them either.
+services:
+  keycloak:
+    environment:
+      KC_HOSTNAME: http://localhost:18080/auth
+    ports: !override
+      - "127.0.0.1:18080:8080"
+      - "127.0.0.1:9090:9000"
+
+  slurm:
+    build:
+      platforms: !override
+        - linux/amd64
+
+  pbs:
+    build:
+      platforms: !override
+        - linux/amd64

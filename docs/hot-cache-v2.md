@@ -6,6 +6,15 @@ production Alps now runs FirecREST v2 (v1 was decommissioned on Alps on 2025-12-
 see the note at the top of `docs/hot-cache.md`), and this project needs a verified
 picture of v2 before deciding how `firecrest-mcp/` should speak it.
 
+> **CRIGAMO-21 update:** everything below was verified against the launcher image
+> (`ghcr.io/eth-cscs/firecrest-v2-demo`), which needs a real HPC login node to point
+> at (§2). For local development without one, `make env-up` instead brings up
+> `eth-cscs/firecrest-v2`'s own `docker-compose.yml` — a genuinely self-contained
+> stack (Keycloak + a dummy Slurm cluster + FirecREST, no external SSH target
+> required). Its request/response shapes are the same v2 API documented here; see
+> `docs/local-env.md` for that path and `docs/reports/01-firecrest-demo-stack.md`-style
+> verification in this issue's closing comment.
+
 - **Demo verified against:** `ghcr.io/eth-cscs/firecrest-v2-demo:latest`,
   digest `sha256:3dedfc6415191b86386e688938f31c1f1204fb473e0c3318eb92aea2fbd0226d`,
   pulled 2026-09-12. The FirecREST app itself reports `app_version: 2.6.0`
