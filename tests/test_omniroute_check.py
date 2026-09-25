@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-import sys
-import os
-import unittest
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import os
 import subprocess
+import sys
+import threading
 import time
+import typing
+import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 SCRIPT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'scripts', 'omniroute_check.py'))
 
 class SharedState:
-    recorded_headers = []
+    recorded_headers: typing.ClassVar[list] = []
 
 class MockServerRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -60,7 +61,7 @@ class TestOmnirouteCheck(unittest.TestCase):
         cls.thread.join()
 
     def setUp(self):
-        SharedState.recorded_headers = []
+        SharedState.recorded_headers: typing.ClassVar[list] = []
         self.server.scenario = 'valid'
 
     def test_positive_degraded_capability_404(self):
@@ -69,7 +70,7 @@ class TestOmnirouteCheck(unittest.TestCase):
         env['OMNIROUTE_DISCOVERY_URL'] = f'http://127.0.0.1:{self.port}/v1'
         env['OMNIROUTE_MODEL'] = 'apertus-70b'
         env['OMNIROUTE_API_KEY'] = 'test-key'
-        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10)
+        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10, check=False)
         self.assertEqual(proc.returncode, 0)
         self.assertIn(b"unsupported/degraded", proc.stdout)
 
@@ -79,7 +80,7 @@ class TestOmnirouteCheck(unittest.TestCase):
         env['OMNIROUTE_DISCOVERY_URL'] = f'http://127.0.0.1:{self.port}/v1'
         env['OMNIROUTE_MODEL'] = 'apertus-70b'
         env['OMNIROUTE_API_KEY'] = 'test-key'
-        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10)
+        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10, check=False)
         self.assertEqual(proc.returncode, 0)
         self.assertIn(b"unsupported/degraded", proc.stdout)
 
@@ -91,7 +92,7 @@ class TestOmnirouteCheck(unittest.TestCase):
         env['OMNIROUTE_MODEL'] = 'apertus-70b'
         if 'OMNIROUTE_API_KEY' in env:
             del env['OMNIROUTE_API_KEY']
-        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10)
+        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10, check=False)
         self.assertEqual(proc.returncode, 0)
 
         auth_found = False
@@ -104,7 +105,7 @@ class TestOmnirouteCheck(unittest.TestCase):
         env = os.environ.copy()
         env['OMNIROUTE_DISCOVERY_URL'] = f'http://127.0.0.1:{self.port}/v1'
         env['OMNIROUTE_MODEL'] = ''
-        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10)
+        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10, check=False)
         self.assertEqual(proc.returncode, 1)
 
     def test_negative_model_not_found(self):
@@ -112,7 +113,7 @@ class TestOmnirouteCheck(unittest.TestCase):
         env = os.environ.copy()
         env['OMNIROUTE_DISCOVERY_URL'] = f'http://127.0.0.1:{self.port}/v1'
         env['OMNIROUTE_MODEL'] = 'invalid-model'
-        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10)
+        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10, check=False)
         self.assertEqual(proc.returncode, 1)
 
     def test_negative_invalid_json(self):
@@ -120,14 +121,14 @@ class TestOmnirouteCheck(unittest.TestCase):
         env = os.environ.copy()
         env['OMNIROUTE_DISCOVERY_URL'] = f'http://127.0.0.1:{self.port}/v1'
         env['OMNIROUTE_MODEL'] = 'apertus-70b'
-        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10)
+        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10, check=False)
         self.assertEqual(proc.returncode, 1)
 
     def test_negative_blackhole_timeout(self):
         env = os.environ.copy()
         env['OMNIROUTE_DISCOVERY_URL'] = 'http://240.240.240.0:80/v1'
         env['OMNIROUTE_MODEL'] = 'apertus-70b'
-        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10)
+        proc = subprocess.run([sys.executable, SCRIPT_PATH], env=env, capture_output=True, timeout=10, check=False)
         self.assertEqual(proc.returncode, 1)
 
 if __name__ == '__main__':

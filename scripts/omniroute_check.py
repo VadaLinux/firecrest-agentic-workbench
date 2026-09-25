@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Pre-flight check for OmniRoute proxy model discovery.
 """
-import sys
 import json
 import os
-import urllib.request
-from urllib.error import URLError, HTTPError
+import sys
 import urllib.parse
+import urllib.request
+from urllib.error import HTTPError, URLError
+
 
 def run_check():
     discovery_url = os.environ.get("OMNIROUTE_DISCOVERY_URL", "")
@@ -73,7 +74,7 @@ def run_check():
     try:
         with urllib.request.urlopen(req_cap, timeout=3.0):
              pass
-    except (HTTPError, URLError, TimeoutError, Exception):
+    except (HTTPError, URLError, TimeoutError):
         print("unsupported/degraded")
         # Do not exit 1!
 
