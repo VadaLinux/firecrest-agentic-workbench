@@ -75,3 +75,24 @@ config line is the claim that fails in front of the person who built the endpoin
 ## What we will NOT claim in the demo
 
 We will demo against the local Ollama backend on the laptop (no CSCS inference credentials needed for the hackathon itself) and state clearly, live, that the production version swaps three environment variables to run on CSCS's own Apertus endpoint instead — not claim we've already tested against `api.inference.cscs.ch` unless we've actually requested and verified access beforehand.
+
+## OmniRoute Local Proxy Setup
+
+To decouple local development from external keys, OmniRoute can optionally be used as a proxy.
+OmniRoute intercepts OpenAI-compatible checks, acts as the central router, and validates requests.
+
+Configure the integration by copying the example environment file from the root directory:
+
+```bash
+cp .env.example .env
+```
+
+This root `.env` provides the necessary fallback overrides without exposing secrets:
+- `OMNIROUTE_DISCOVERY_URL` targets the host listener (e.g., `http://127.0.0.1:20128/v1`).
+- `OMNIROUTE_BASE_URL` dictates what the internal Docker containers use (e.g., `http://host.docker.internal:20128/v1`).
+
+**Critical Networking Requirement:**
+For `host.docker.internal` to successfully traverse the bridge, the OmniRoute host instance **must bind to `0.0.0.0` or directly to the Docker bridge IP (e.g., `172.17.0.1`)**.
+Binding OmniRoute only to `127.0.0.1` will block incoming traffic from the container with a `Connection Refused` error. Note that `0.0.0.0` opens the listener to all network interfaces, exposing OmniRoute — use specific IP binding or host firewall rules to restrict access when needed.
+
+When you pass `DOCMIND_LLM_BACKEND_CHOICE=openai_compatible` to `scripts/workbench-up.sh`, the wrapper checks if OmniRoute is available and falls back gracefully.

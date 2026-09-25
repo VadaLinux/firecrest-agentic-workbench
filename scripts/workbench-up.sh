@@ -142,9 +142,33 @@ if [ -f "$OPENROUTER_ENV" ] && grep -q '^OPENROUTER_API_KEY=.\+' "$OPENROUTER_EN
     # switch to a paid model (e.g. meta-llama/llama-3.3-70b-instruct, ~$0.10/M in, roughly
     # $0.0005 per query) when that becomes a problem.
     export DOCMIND_LLM_MODEL="${DOCMIND_LLM_MODEL:-nvidia/nemotron-3-super-120b-a12b:free}"
+    export DOCMIND_OPENAI_API_KEY="$OPENROUTER_API_KEY"
     log "DocMind synthesis: OpenRouter (model $DOCMIND_LLM_MODEL)"
 else
     log "DocMind synthesis: local Ollama (no OPENROUTER_API_KEY in $OPENROUTER_ENV)"
+fi
+
+if [ -f ".env" ]; then
+    OMNIROUTE_BASE_URL="${OMNIROUTE_BASE_URL:-$(grep -E '^OMNIROUTE_BASE_URL=' .env | head -1 | cut -d= -f2-)}"
+    OMNIROUTE_DISCOVERY_URL="${OMNIROUTE_DISCOVERY_URL:-$(grep -E '^OMNIROUTE_DISCOVERY_URL=' .env | head -1 | cut -d= -f2-)}"
+    OMNIROUTE_API_KEY="${OMNIROUTE_API_KEY:-$(grep -E '^OMNIROUTE_API_KEY=' .env | head -1 | cut -d= -f2-)}"
+    OMNIROUTE_MODEL="${OMNIROUTE_MODEL:-$(grep -E '^OMNIROUTE_MODEL=' .env | head -1 | cut -d= -f2-)}"
+fi
+
+if [ -n "$OMNIROUTE_BASE_URL" ] && [ -n "$OMNIROUTE_DISCOVERY_URL" ]; then
+    export DOCMIND_LLM_BACKEND_CHOICE="openai_compatible"
+fi
+
+if [ "$DOCMIND_LLM_BACKEND_CHOICE" = "openai_compatible" ] && [ -n "$OMNIROUTE_DISCOVERY_URL" ]; then
+    log "Running OmniRoute proxy pre-flight check..."
+    if ! OMNIROUTE_DISCOVERY_URL="$OMNIROUTE_DISCOVERY_URL" OMNIROUTE_MODEL="$OMNIROUTE_MODEL" OMNIROUTE_API_KEY="$OMNIROUTE_API_KEY" python3 scripts/omniroute_check.py; then
+        log "ERROR: OmniRoute discovery check failed. Aborting startup."
+        exit 1
+    fi
+    export DOCMIND_OPENAI_BASE_URL="$OMNIROUTE_BASE_URL"
+    export DOCMIND_OPENAI_API_KEY="${OMNIROUTE_API_KEY:-${OPENROUTER_API_KEY:-}}"
+    export DOCMIND_LLM_MODEL="$OMNIROUTE_MODEL"
+    log "DocMind synthesis configured via OmniRoute proxy: $DOCMIND_LLM_MODEL"
 fi
 
 compose_up "DocMind" "$DOCMIND_DIR"
