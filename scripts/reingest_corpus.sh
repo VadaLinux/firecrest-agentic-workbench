@@ -101,6 +101,7 @@ if [ "${DRY_RUN:-0}" = "1" ]; then
     DOCKER "docker exec $CONTAINER sh -c 'ls /app/data/corpus-full | tail -3'" | sed 's/^/    /'
     printf '{"ok": true, "dry_run": true, "staged_files": %s, "in_container": %s, "snapshot": "%s"}\n' \
         "$STAGED" "$IN" "$BEFORE" > "$RESULT_FILE"
+    python3 -m json.tool "$RESULT_FILE" >/dev/null || { log "FAILED: result.json non valido"; exit 1; }
     exit 0
 fi
 
@@ -132,11 +133,13 @@ c = qdrant_client.QdrantClient(url='http://qdrant:6333')
 import json
 print(json.dumps({n: c.count(n).count for n in [x.name for x in c.get_collections().collections] if 'docmind_docs__' in n}))
 \"" | tr -d '\r')
+[ -n "$VEC" ] || VEC='{}'
 
 if [ "$RC" -ne 0 ]; then
     log "FAILED: ingestion exited $RC"
     printf '{"ok": false, "stage": "ingest", "exit": %s, "elapsed_s": %s, "snapshot_before": "%s", "snapshot_after": "%s", "vectors": %s}\n' \
-        "$RC" "$ELAPSED" "$BEFORE" "$AFTER" "${VEC:-{}}" > "$RESULT_FILE"
+        "$RC" "$ELAPSED" "$BEFORE" "$AFTER" "$VEC" > "$RESULT_FILE"
+    python3 -m json.tool "$RESULT_FILE" >/dev/null || { log "FAILED: result.json non valido"; exit 1; }
     exit 1
 fi
 
@@ -144,11 +147,13 @@ if [ "$BEFORE" = "$AFTER" ]; then
     log "FAILED: CURRENT did not change — no new snapshot was activated"
     printf '{"ok": false, "stage": "verify", "reason": "snapshot unchanged", "snapshot": "%s", "elapsed_s": %s}\n' \
         "$AFTER" "$ELAPSED" > "$RESULT_FILE"
+    python3 -m json.tool "$RESULT_FILE" >/dev/null || { log "FAILED: result.json non valido"; exit 1; }
     exit 1
 fi
 
 log "OK: new snapshot $AFTER, ingested in $((ELAPSED / 60))m"
 printf '{"ok": true, "snapshot_before": "%s", "snapshot_after": "%s", "elapsed_s": %s, "staged_files": %s, "vectors": %s, "finished_at": "%s"}\n' \
-    "$BEFORE" "$AFTER" "$ELAPSED" "$STAGED" "${VEC:-{}}" "$(date -Is)" > "$RESULT_FILE"
+    "$BEFORE" "$AFTER" "$ELAPSED" "$STAGED" "$VEC" "$(date -Is)" > "$RESULT_FILE"
+python3 -m json.tool "$RESULT_FILE" >/dev/null || { log "FAILED: result.json non valido"; exit 1; }
 log "result written to $RESULT_FILE"
 exit 0
