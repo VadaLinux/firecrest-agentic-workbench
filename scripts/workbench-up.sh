@@ -130,7 +130,10 @@ compose_up "FirecREST demo stack" "$FIREREST_DEMO"
 V2_FAILED=0
 if [ -n "$FIRECREST_V2_DIR" ]; then
     log "starting FirecREST v2 stack ($FIRECREST_V2_DIR)"
-    compose_in "$FIRECREST_V2_DIR" -f docker-compose.yml -f "$FIRECREST_V2_OVERRIDE" up -d 2>&1 | sed 's/^/    /' | tail -5
+    # Only the smoke-path services; pbs/minio/ssh-ca from the upstream file are not started.
+    # F7T_HOST_IP is forced to loopback so no v2 port is published on a non-loopback address.
+    F7T_HOST_IP=127.0.0.1 compose_in "$FIRECREST_V2_DIR" -f docker-compose.yml -f "$FIRECREST_V2_OVERRIDE" \
+        up -d firecrest slurm keycloak keycloak-create-user 2>&1 | sed 's/^/    /' | tail -5
     v2_rc=${PIPESTATUS[0]}
     if [ "$v2_rc" -eq 0 ]; then
         log "FirecREST v2 up"
