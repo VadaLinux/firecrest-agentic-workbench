@@ -1,5 +1,9 @@
 # `GET /filesystem/{system}/ops/view` always fails when `size` is omitted and `max_ops_file_size` is below 5 MiB
 
+> **Version note (added for CRIGAMO-138):** the observations below were recorded on
+> FirecREST **2.6.0**. The current stack is **2.6.1** (see `docs/local-env.md`). This
+> document is kept as historical evidence and is not rewritten.
+
 ## Summary
 
 `get_view`'s default for the `size` query parameter is hardcoded to `5 * 1024 *

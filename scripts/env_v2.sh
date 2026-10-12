@@ -20,6 +20,12 @@
 #                       the same path scripts/docs_delta.sh already expects
 #                       for this repo, so both scripts share one clone)
 #     F7T_V2_REPO_URL   upstream URL (default: https://github.com/eth-cscs/firecrest-v2.git)
+#     F7T_V2_REF        upstream tag to check out (default: 2.6.1). The clone is
+#                       pinned to this tag, not to the default branch. Pinned image:
+#                       ghcr.io/eth-cscs/firecrest-v2-demo:2.6.1
+#                       digest sha256:ed12f77ea5f21964805562743f02e22e810fe742246826a01111f411b27f494c
+#                       (index; amd64 sha256:119044bdb486d24dd5abfc2f00450bcc5abd9096c17846d70e0d8480d346750f)
+#                       source tag 2.6.1 -> commit e6b5a418c7aa1f9f5bacea413883fc8a1f8eeb7c
 #
 # What this script does NOT do: it does not write firecrest-mcp/.env. Copy
 # firecrest-mcp/.env.example to .env yourself and fill in the FIRECREST_V2_*
@@ -31,6 +37,7 @@ REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-${HOME}/Sviluppo}"
 F7T_V2_DIR="${F7T_V2_DIR:-${WORKSPACE_ROOT}/firecrest-v2-upstream}"
 F7T_V2_REPO_URL="${F7T_V2_REPO_URL:-https://github.com/eth-cscs/firecrest-v2.git}"
+F7T_V2_REF="${F7T_V2_REF:-2.6.1}"
 OVERRIDE_FILE="${REPO}/docs/patches/firecrest-v2-docker-compose.override.yml"
 SERVICES=(firecrest slurm keycloak keycloak-create-user)
 
@@ -80,9 +87,15 @@ if [ ! -d "$F7T_V2_DIR/.git" ]; then
     log "cloning $F7T_V2_REPO_URL -> $F7T_V2_DIR"
     mkdir -p "$WORKSPACE_ROOT"
     git clone --quiet "$F7T_V2_REPO_URL" "$F7T_V2_DIR" || fail "clone failed"
+    git -C "$F7T_V2_DIR" -c advice.detachedHead=false checkout --quiet "tags/$F7T_V2_REF" \
+        || fail "checkout of tag $F7T_V2_REF failed"
 else
     log "reusing existing clone at $F7T_V2_DIR (tracked content untouched; host-local metadata may be adjusted)"
+    git -C "$F7T_V2_DIR" fetch --quiet --tags origin || fail "fetch --tags failed in $F7T_V2_DIR"
+    git -C "$F7T_V2_DIR" -c advice.detachedHead=false checkout --quiet "tags/$F7T_V2_REF" \
+        || fail "checkout of tag $F7T_V2_REF failed in $F7T_V2_DIR (uncommitted changes?)"
 fi
+log "firecrest-v2 source at tag $F7T_V2_REF ($(git -C "$F7T_V2_DIR" rev-parse --short HEAD))"
 
 # The clone ships test-only keys/secrets (fine — they're the upstream
 # project's own published demo credentials, not ours, and they only ever

@@ -177,7 +177,8 @@ and `docmind__query_docs` from the local RAG corpus. Resume from
 `X-Machine-Name` header and served by `firecrest-mcp/client.py`. Production Alps
 is v2 (v1 was decommissioned there on 2025-12-05), addressed through
 `/{system}/...` paths and supported by the selectable
-`firecrest-mcp/client_v2.py`. The verified details are in
+`firecrest-mcp/client_v2.py`. The local v2 stack is pinned to FirecREST **2.6.1**
+(tested against 2.6.1; see `docs/local-env.md`). The verified details are in
 [`docs/hot-cache.md`](./docs/hot-cache.md) and
 [`docs/hot-cache-v2.md`](./docs/hot-cache-v2.md).
 
