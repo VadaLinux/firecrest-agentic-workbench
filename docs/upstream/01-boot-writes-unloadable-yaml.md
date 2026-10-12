@@ -1,5 +1,9 @@
 # Launcher `/boot` writes a config its own API cannot read back, so guided setup never produces a running FirecREST
 
+> **Version note (added for CRIGAMO-138):** the observations below were recorded on
+> FirecREST **2.6.0**. The current stack is **2.6.1** (see `docs/local-env.md`). This
+> document is kept as historical evidence and is not rewritten.
+
 ## Summary
 
 In the `firecrest-v2-demo` image, `POST /boot` serialises the settings object with

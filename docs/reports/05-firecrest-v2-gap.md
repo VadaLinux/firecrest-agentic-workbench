@@ -1,5 +1,9 @@
 # Report 05 — FirecREST v1 → v2 gap analysis
 
+> **Version note (added for CRIGAMO-138):** the observations below were recorded on
+> FirecREST **2.6.0**. The current stack is **2.6.1** (see `docs/local-env.md`). This
+> document is kept as historical evidence and is not rewritten.
+
 **Task:** establish the v2 path — bring up the v2 demo, record what it actually does,
 propose (not build) how `firecrest-mcp/` should support it.
 **Status:** demo brought up and exercised; gap table and design proposal below;

@@ -5,6 +5,25 @@
 self-contained compose stack: FirecREST, dummy Slurm, and Keycloak. It does
 not start the whole workbench, PBS, or MinIO.
 
+## Pinned version: FirecREST 2.6.1
+
+Tested against FirecREST **2.6.1**. The clone is checked out at the tag
+`F7T_V2_REF` (default `2.6.1`), not the default branch.
+
+- Source tag `2.6.1` → commit `e6b5a418c7aa1f9f5bacea413883fc8a1f8eeb7c`
+  (`git ls-remote --tags https://github.com/eth-cscs/firecrest-v2.git`).
+- Image `ghcr.io/eth-cscs/firecrest-v2-demo:2.6.1` → index digest
+  `sha256:ed12f77ea5f21964805562743f02e22e810fe742246826a01111f411b27f494c`
+  (amd64 `sha256:119044bdb486d24dd5abfc2f00450bcc5abd9096c17846d70e0d8480d346750f`,
+  arm64 `sha256:699cf4851e61ba8474fbd31d59d4451d2483e2a975e55e67dcef7cdd03c5bcc8`).
+- Client: `pyfirecrest==3.10.0`, unchanged.
+
+Changes from 2.5.x that matter to this repo (from the 2.6.0 release notes, see
+upstream releases): job history defaults to 24 h, timeouts now return 504, generic
+SSH errors now return 502. `get_job_status` takes an optional `time_window` to look
+further back. The 2.6.1 release notes list a SSH timeout fix on `process_setup` and
+a minimum JWT TTL of 5 s; this repo does not call `process_setup` directly.
+
 ## Start and stop
 ```bash
 make env-up       # first build compiles Slurm and takes several minutes

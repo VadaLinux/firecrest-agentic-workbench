@@ -125,6 +125,17 @@ def _http_status(exc: Exception) -> int | None:
     return getattr(responses[-1], "status_code", None) if responses else None
 
 
+#: Cause hints for FirecREST v2 error statuses, from the upstream mapping in
+#: eth-cscs/firecrest-v2 tag 2.6.1, src/lib/models/apis/api_response_model.py:43-54
+#: (TimeoutLimitExceeded -> 504; SSHClientError/SSHServiceError -> 502;
+#: SSHConnectionError -> 424). The exception type stays FirecRESTError.
+_STATUS_HINTS: dict[int, str] = {
+    424: "SSH connection to the cluster failed",
+    502: "SSH error while talking to the cluster",
+    504: "FirecREST timed out waiting for the cluster",
+}
+
+
 class FirecRESTClientV2:
     """Async-compatible adapter around ``firecrest.v2.Firecrest``.
 
@@ -165,9 +176,12 @@ class FirecRESTClientV2:
                 getattr(self._client, method), *args, **kwargs
             )
         except Exception as exc:
-            raise FirecRESTError(
-                f"FirecREST v2 {method} failed", status=_http_status(exc)
-            ) from exc
+            status = _http_status(exc)
+            hint = _STATUS_HINTS.get(status or 0)
+            message = f"FirecREST v2 {method} failed"
+            if hint:
+                message = f"{message}: {hint}"
+            raise FirecRESTError(message, status=status) from exc
 
     async def list_systems(self) -> list[dict[str, Any]]:
         """Return systems using ``Firecrest.systems()``."""
@@ -214,10 +228,26 @@ class FirecRESTClientV2:
             job_file_err=metadata.get("standardError"),
         )
 
-    async def get_job_status(self, job_id: str, system: str | None = None) -> JobStatus:
-        """Read state using ``Firecrest.job_info(system, job_id)``."""
+    async def get_job_status(
+        self,
+        job_id: str,
+        system: str | None = None,
+        time_window: str | None = None,
+    ) -> JobStatus:
+        """Read state using ``Firecrest.job_info(system, job_id)``.
+
+        ``time_window`` (e.g. ``"7d"``) is forwarded to ``job_info`` only when
+        given; omitting it keeps the call identical to before, so Slurm's
+        default 24 h history window still applies.
+        """
+        kwargs: dict[str, Any] = {}
+        if time_window is not None:
+            kwargs["time_window"] = time_window
         record = _find_job(
-            await self._call("job_info", system or self.config.system, job_id), job_id
+            await self._call(
+                "job_info", system or self.config.system, job_id, **kwargs
+            ),
+            job_id,
         )
         status = record.get("status") or {}
         times = record.get("time") or {}

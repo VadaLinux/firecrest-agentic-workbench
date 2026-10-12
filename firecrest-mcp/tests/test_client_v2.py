@@ -24,8 +24,8 @@ class FakeFirecrest:
         self._call("submit", *args, **kwargs)
         return {"jobid": "7"}
 
-    def job_info(self, *args: Any) -> list[dict[str, Any]]:
-        self._call("job_info", *args)
+    def job_info(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        self._call("job_info", *args, **kwargs)
         return [{"jobId": "7", "status": {"state": "COMPLETED", "exitCode": 0}}]
 
     def job_metadata(self, *args: Any) -> list[dict[str, str]]:
@@ -118,3 +118,59 @@ async def test_adapter_error_does_not_include_exception_payload(tmp_path) -> Non
         await client.get_job_status("7")
     assert secret not in str(raised.value)
     assert str(raised.value) == "FirecREST v2 job_info failed"
+
+
+class HTTPStatusError(Exception):
+    """Mimics pyfirecrest's HTTP error, which exposes ``responses``."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"HTTP {status_code}")
+        self.responses = [type("Resp", (), {"status_code": status_code})()]
+
+
+@pytest.mark.parametrize(
+    ("status", "hint"),
+    [
+        # Copied from the upstream test expectations in eth-cscs/firecrest-v2
+        # tag 2.6.1, tests/api_response_model_test.py:58 (TimeoutLimitExceeded -> 504)
+        # and :68/:73 (SSHClientError/SSHServiceError -> 502).
+        (504, "timed out waiting for the cluster"),
+        (502, "SSH error while talking to the cluster"),
+        (424, "SSH connection to the cluster failed"),
+    ],
+)
+async def test_upstream_ssh_and_timeout_statuses_keep_type_and_add_cause(
+    tmp_path, status: int, hint: str
+) -> None:
+    class Failure:
+        def job_info(self, *_: Any, **__: Any) -> list[dict[str, Any]]:
+            raise HTTPStatusError(status)
+
+    client = f7t2.FirecRESTClientV2(config(tmp_path), factory=lambda _: Failure())
+    with pytest.raises(f7t2.FirecRESTError) as info:
+        await client.get_job_status("7")
+    assert type(info.value) is f7t2.FirecRESTError
+    assert info.value.status == status
+    assert hint in str(info.value)
+
+
+async def test_get_job_status_without_time_window_calls_job_info_unchanged(
+    client: f7t2.FirecRESTClientV2, fake: FakeFirecrest
+) -> None:
+    await client.get_job_status("7")
+    name, args, kwargs = fake.calls[-1]
+    assert name == "job_info"
+    assert args == ("cluster", "7")
+    assert kwargs == {}
+
+
+async def test_get_job_status_forwards_time_window_to_job_info(
+    client: f7t2.FirecRESTClientV2, fake: FakeFirecrest
+) -> None:
+    await client.get_job_status("7", time_window="7d")
+    name, args, kwargs = fake.calls[-1]
+    assert name == "job_info"
+    assert args == ("cluster", "7")
+    assert "time_window" in kwargs
+    assert kwargs["time_window"] == "7d"
+    assert kwargs == {"time_window": "7d"}

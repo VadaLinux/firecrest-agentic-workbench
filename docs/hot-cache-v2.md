@@ -15,10 +15,15 @@ picture of v2 before deciding how `firecrest-mcp/` should speak it.
 > `docs/local-env.md` for that path and `docs/reports/01-firecrest-demo-stack.md`-style
 > verification in this issue's closing comment.
 
-- **Demo verified against:** `ghcr.io/eth-cscs/firecrest-v2-demo:latest`,
+- **Demo verified against (2026-09-12, historical):** `ghcr.io/eth-cscs/firecrest-v2-demo:latest`,
   digest `sha256:3dedfc6415191b86386e688938f31c1f1204fb473e0c3318eb92aea2fbd0226d`,
-  pulled 2026-09-12. The FirecREST app itself reports `app_version: 2.6.0`
+  pulled 2026-09-12. The FirecREST app itself reported `app_version: 2.6.0`
   (`GET /openapi.json` → `info.version`).
+- **Current stack:** FirecREST **2.6.1** (`ghcr.io/eth-cscs/firecrest-v2-demo:2.6.1`,
+  index digest `sha256:ed12f77ea5f21964805562743f02e22e810fe742246826a01111f411b27f494c`,
+  source tag commit `e6b5a418c7aa1f9f5bacea413883fc8a1f8eeb7c`). See `docs/local-env.md`.
+  The response-header and `/openapi.json` examples below are from 2.6.0 and are
+  kept as recorded evidence.
 - **Launcher UI:** `http://localhost:8025/`. **FirecREST API gateway:**
   `http://localhost:5025/`. **Web UI:** container port 3000 (host-mapped to
   `3001` here because `3000` was already taken by another local service — not a
