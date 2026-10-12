@@ -34,6 +34,17 @@ FIREREST_MCP_PORT="${FIREREST_MCP_PORT:-8765}"
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 fail() { log "FATAL: $*"; exit 1; }
 
+# Optional FirecREST v2 stack: an upstream clone at a pinned tag (e.g. 2.6.1). Enabled only
+# when FIRECREST_V2_DIR is set. The override file is read from this repo, never copied into
+# the clone, so the upstream tree stays untouched. Checked before anything is started.
+FIRECREST_V2_DIR="${FIRECREST_V2_DIR:-}"
+FIRECREST_V2_OVERRIDE="${REPO}/docs/patches/firecrest-v2-docker-compose.override.yml"
+if [ -n "$FIRECREST_V2_DIR" ]; then
+    [ -d "$FIRECREST_V2_DIR" ] || fail "FIRECREST_V2_DIR is set but '$FIRECREST_V2_DIR' is not a directory"
+    [ -f "$FIRECREST_V2_DIR/docker-compose.yml" ] || fail "no docker-compose.yml in '$FIRECREST_V2_DIR'"
+    [ -f "$FIRECREST_V2_OVERRIDE" ] || fail "FIRECREST_V2_DIR is set but the override '$FIRECREST_V2_OVERRIDE' is missing"
+fi
+
 # Docker access depends on how this runs, and the difference is not cosmetic:
 #
 #   * as root (a system unit) `docker` works directly;
@@ -54,13 +65,17 @@ else
 fi
 
 compose_in() {
-    # compose_in <dir> <args...> — paths here are fixed literals, so the quoting through
-    # sg's shell is safe.
+    # compose_in <dir> <args...> — every argument is re-quoted with printf %q before it
+    # goes through sg's shell, so paths or values containing spaces or metacharacters
+    # reach docker compose unchanged.
     local dir="$1"; shift
     if [ "$DOCKER_ACCESS" = direct ]; then
         ( cd "$dir" && docker compose "$@" )
     else
-        sg docker -c "cd $dir && docker compose $*"
+        local cmd a
+        cmd="cd $(printf '%q' "$dir") && docker compose"
+        for a in "$@"; do cmd+=" $(printf '%q' "$a")"; done
+        sg docker -c "$cmd"
     fi
 }
 
@@ -109,6 +124,22 @@ done
 docker info >/dev/null 2>&1 || fail "docker daemon not reachable after 60s"
 
 compose_up "FirecREST demo stack" "$FIREREST_DEMO"
+
+# FirecREST v2: `up -d` only, with the versioned override on top of the upstream file. A
+# failure here is reported but does not stop the other stacks.
+V2_FAILED=0
+if [ -n "$FIRECREST_V2_DIR" ]; then
+    log "starting FirecREST v2 stack ($FIRECREST_V2_DIR)"
+    compose_in "$FIRECREST_V2_DIR" -f docker-compose.yml -f "$FIRECREST_V2_OVERRIDE" up -d 2>&1 | sed 's/^/    /' | tail -5
+    v2_rc=${PIPESTATUS[0]}
+    if [ "$v2_rc" -eq 0 ]; then
+        log "FirecREST v2 up"
+    else
+        log "ERROR: FirecREST v2 exited $v2_rc"
+        V2_FAILED=1
+    fi
+fi
+
 compose_up "MetaMCP" "$METAMCP_DIR"
 
 # DocMind's synthesis backend is selectable (see the compose override). The local Ollama
@@ -191,3 +222,5 @@ fi
 log "=== bring-up finished ==="
 log "verify the aggregated tool surface with:"
 log "  cd $REPO && ./firecrest-mcp/.venv/bin/python scripts/metamcp_admin.py tools"
+
+exit "$V2_FAILED"
