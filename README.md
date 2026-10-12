@@ -1,5 +1,7 @@
 # FirecREST Agentic Workbench
 
+> **Product scope:** [docs/product.md](./docs/product.md) · **Platform:** [docs/agentos.md](./docs/agentos.md)
+
 An agentic layer on top of [FirecREST](https://github.com/eth-cscs/firecrest)
 (CSCS's RESTful gateway to HPC). It lets a researcher drive job submission,
 monitoring, and file transfer through natural language, managed like a teammate
