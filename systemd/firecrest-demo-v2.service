@@ -1,0 +1,30 @@
+[Unit]
+Description=FirecREST v2 demo stack only (workbench-up.sh --only-v2)
+Documentation=https://github.com/VadaLinux/firecrest-agentic-workbench/blob/main/docs/local-env.md
+# Starts only the FirecREST v2 compose services. v1, MetaMCP and DocMind are not started.
+# Installed as a SYSTEM unit with User=master and SupplementaryGroups=docker, as approved
+# in CRIGAMO-173. The VPS has no SELinux (AppArmor only), so the user-unit note in
+# firecrest-workbench-stacks.service does not apply here.
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=master
+Group=master
+SupplementaryGroups=docker
+WorkingDirectory=/home/master/Sviluppo/firecrest-agentic-workbench
+Environment=HOME=/home/master
+Environment=REPO=/home/master/Sviluppo/firecrest-agentic-workbench
+Environment=FIRECREST_V2_DIR=/home/master/Sviluppo/firecrest-demo/firecrest-v2
+ExecStart=/home/master/Sviluppo/firecrest-agentic-workbench/scripts/workbench-up.sh --only-v2
+# No ExecStop: stopping the unit does not run `docker compose down`. Stop the stack by hand
+# (see docs/local-env.md) and confirm with `docker ps`.
+TimeoutStartSec=3600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
