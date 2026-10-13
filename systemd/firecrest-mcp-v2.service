@@ -1,0 +1,54 @@
+[Unit]
+Description=FirecREST MCP server, FirecREST v2 (Streamable HTTP on 127.0.0.1:8765)
+Documentation=https://github.com/VadaLinux/firecrest-agentic-workbench/blob/main/docs/local-env.md
+# SYSTEM unit for the VPS demo. The workstation keeps its own USER unit,
+# systemd/firecrest-mcp.service, which is not changed by this file.
+#
+# Why a system unit is fine here: the VPS runs AppArmor, not SELinux, and the venv is
+# readable and executable by User=master. (The user-unit note in firecrest-mcp.service
+# about SELinux init_t does not apply to this host.)
+#
+# Exposure: the server has no authentication of its own. It binds 127.0.0.1 only, and the
+# public path is a Cloudflare tunnel protected by Cloudflare Access (see docs/local-env.md).
+# Never change --host to 0.0.0.0 here.
+#
+# Depends on the v2 stack (firecrest, slurm, keycloak): Wants= starts it, After= orders it.
+# The MCP server itself does not need docker, so no SupplementaryGroups=docker.
+After=network-online.target firecrest-demo-v2.service
+Wants=network-online.target firecrest-demo-v2.service
+
+[Service]
+Type=simple
+User=master
+Group=master
+WorkingDirectory=/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp
+Environment=PYTHONUNBUFFERED=1
+Environment=FIRECREST_API_VERSION=v2
+Environment=FIRECREST_V2_LOG_DIR=/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/logs
+Environment=FCAGENT_AUDIT_PATH=/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/logs/audit.jsonl
+# Secrets and the public hostname are read by the server from firecrest-mcp/.env (mode 600).
+# Nothing secret belongs in this file.
+ExecStart=/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/.venv/bin/python server.py --transport http --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=5
+
+# Hardening that does not touch the server's own work: it reads its code and .env, writes
+# logs under firecrest-mcp/logs and downloads under firecrest-mcp/downloads only, and talks
+# to the network.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+# download_file writes to ./downloads relative to the working directory. With
+# ProtectHome=read-only it must be listed here too. The leading '-' makes a missing path
+# non-fatal (the directory is created on first use); create it once on the VPS with owner master.
+ReadWritePaths=/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/logs
+ReadWritePaths=-/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/downloads
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

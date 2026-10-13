@@ -22,6 +22,7 @@ import argparse
 import base64
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -422,7 +423,59 @@ def _announce(mode: str) -> None:
         )
 
 
+# A DNS name: dot-separated labels of letters, digits and hyphens, no leading or trailing
+# hyphen in a label, no port, no scheme, no user, no wildcard. Used for FIRECREST_MCP_PUBLIC_HOST.
+_DNS_HOSTNAME = re.compile(
+    r"^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$"
+)
+
+
+def _http_transport_security():
+    """DNS-rebinding allowlist for the Streamable HTTP transport.
+
+    The MCP SDK turns on DNS-rebinding protection by itself only when the bind host is
+    localhost, and then allows only localhost Host/Origin values. Behind a Cloudflare
+    tunnel the requests arrive with the public hostname in ``Host:`` and would be refused
+    with 421. The public hostname comes from ``FIRECREST_MCP_PUBLIC_HOST`` in ``.env`` and
+    is added to the allowlist; it is never hard-coded here. Without the variable the SDK
+    default is used unchanged. The bind host is not changed by this function.
+    """
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    public_host = os.environ.get("FIRECREST_MCP_PUBLIC_HOST", "").strip().lower()
+    if not public_host:
+        return None  # SDK default, as before this change
+    # An all-numeric last label is an IPv4 literal, not a DNS name: reject it too.
+    looks_like_ipv4 = re.fullmatch(r"[0-9.]+", public_host) is not None
+    if looks_like_ipv4 or not _DNS_HOSTNAME.fullmatch(public_host):
+        raise FirecRESTError(
+            "FIRECREST_MCP_PUBLIC_HOST must be a bare DNS hostname such as mcp.example.org "
+            "(no scheme, port, path, user, wildcard or IP address); got an invalid value. "
+            "Fix firecrest-mcp/.env and start again."
+        )
+    local = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=local + [public_host, f"{public_host}:*"],
+        allowed_origins=[
+            "http://127.0.0.1:*",
+            "http://localhost:*",
+            "http://[::1]:*",
+            f"https://{public_host}",
+        ],
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except FirecRESTError as exc:
+        # Configuration errors are reported in one clean line, not as a traceback.
+        print(f"firecrest-mcp: configuration error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="MCP server exposing FirecREST to an agent."
     )
@@ -453,7 +506,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.transport == "http":
         logger.info("serving Streamable HTTP on %s:%d", args.host, args.port)
-        server.run(transport="streamable-http", host=args.host, port=args.port)
+        server.run(
+            transport="streamable-http",
+            host=args.host,
+            port=args.port,
+            transport_security=_http_transport_security(),
+        )
     else:
         logger.info("serving stdio")
         server.run(transport="stdio")
