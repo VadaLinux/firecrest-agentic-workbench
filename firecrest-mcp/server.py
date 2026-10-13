@@ -476,6 +476,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _main(argv: list[str] | None = None) -> int:
+    # The allowlist below is read from the environment at startup. The .env file is loaded
+    # here, before that read, so a value that lives only in firecrest-mcp/.env is seen.
+    # _load_env_file does not override variables that are already set.
+    _load_env_file(Path(__file__).with_name(".env"))
     parser = argparse.ArgumentParser(
         description="MCP server exposing FirecREST to an agent."
     )
