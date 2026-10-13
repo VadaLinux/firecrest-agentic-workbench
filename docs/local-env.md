@@ -31,6 +31,28 @@ make env-status   # gateway :8000 returns 401; Keycloak :18080 returns 200
 make env-down     # stops containers, preserves them for the next env-up
 ```
 
+### Only the v2 stack, via `workbench-up.sh --only-v2`
+
+`scripts/workbench-up.sh --only-v2` brings up **only** the FirecREST v2 services
+(`firecrest`, `slurm`, `keycloak`, `keycloak-create-user`) from the clone at
+`FIRECREST_V2_DIR`, with the versioned override in `docs/patches/`. It does not start
+the v1 demo stack, MetaMCP or DocMind, and it does not read `~/.hermes/.env` or the
+OmniRoute settings. It requires `FIRECREST_V2_DIR` and fails with an explicit message
+if it is missing.
+
+```bash
+FIRECREST_V2_DIR=$HOME/Sviluppo/firecrest-demo/firecrest-v2 \
+  ~/Sviluppo/firecrest-agentic-workbench/scripts/workbench-up.sh --only-v2
+```
+
+The no-argument form (`workbench-up.sh`) keeps its previous behaviour and still starts
+all the stacks. `--status` is unchanged.
+
+The systemd unit `systemd/firecrest-demo-v2.service` runs this command. It is a system
+unit with `User=master` and `SupplementaryGroups=docker`, and it is not enabled by the
+repository: installing and enabling it is an operator step with `sudo`. Stop the stack
+with `docker compose down` in the clone (without `-v`); stopping the unit does not do it.
+
 The override maps Keycloak to `http://localhost:18080` because this workstation's
 Multica backend uses 8080. It keeps Docker builds amd64-only and never edits upstream
 tracked content. `env-up` does adjust host-local key permissions and, under SELinux,

@@ -20,6 +20,8 @@
 #
 # Usage:
 #     workbench-up.sh            bring everything up
+#     workbench-up.sh --only-v2  bring up only the FirecREST v2 stack (needs FIRECREST_V2_DIR);
+#                                v1, MetaMCP and DocMind are not touched
 #     workbench-up.sh --status   report what is running, change nothing
 
 set -uo pipefail
@@ -108,12 +110,27 @@ status() {
     fi
 }
 
-if [ "${1:-}" = "--status" ]; then
-    status
-    exit 0
-fi
+ONLY_V2=0
+case "${1:-}" in
+    "") ;;
+    --status)
+        status
+        exit 0
+        ;;
+    --only-v2)
+        ONLY_V2=1
+        [ -n "$FIRECREST_V2_DIR" ] || fail "--only-v2 needs FIRECREST_V2_DIR (path to the firecrest-v2 clone)"
+        ;;
+    *)
+        fail "unknown argument '$1' (use --only-v2, --status, or no argument)"
+        ;;
+esac
 
-log "=== FirecREST Agentic Workbench bring-up ==="
+if [ "$ONLY_V2" -eq 1 ]; then
+    log "=== FirecREST v2 only (--only-v2) ==="
+else
+    log "=== FirecREST Agentic Workbench bring-up ==="
+fi
 
 # The unit orders after docker.service, but a oneshot can still win the race against the
 # daemon finishing socket setup on a busy boot.
@@ -123,7 +140,9 @@ for _ in $(seq 1 30); do
 done
 docker info >/dev/null 2>&1 || fail "docker daemon not reachable after 60s"
 
-compose_up "FirecREST demo stack" "$FIREREST_DEMO"
+if [ "$ONLY_V2" -eq 0 ]; then
+    compose_up "FirecREST demo stack" "$FIREREST_DEMO"
+fi
 
 # FirecREST v2: `up -d` only, with the versioned override on top of the upstream file. A
 # failure here is reported but does not stop the other stacks.
@@ -143,69 +162,73 @@ if [ -n "$FIRECREST_V2_DIR" ]; then
     fi
 fi
 
-compose_up "MetaMCP" "$METAMCP_DIR"
+if [ "$ONLY_V2" -eq 0 ]; then
+    compose_up "MetaMCP" "$METAMCP_DIR"
+fi
 
-# DocMind's synthesis backend is selectable (see the compose override). The local Ollama
-# model takes ~290s per answer on this CPU-only host, which makes a multi-query agent run
-# unusable, so when an OpenRouter key is available synthesis is pointed at it. Embeddings
-# stay local either way — moving them would invalidate the ingested corpus and force a
-# full re-ingest.
-#
-# The key lives in ~/.hermes/.env, which Docker Compose does not read: compose only loads
-# <project>/.env. It is bridged into the environment here instead, so the stack picks it
-# up both at boot and by hand. Without a key the override falls back to the local model
-# and everything still works, just slowly.
-OPENROUTER_ENV="${OPENROUTER_ENV:-$HOME/.hermes/.env}"
-if [ -f "$OPENROUTER_ENV" ] && grep -q '^OPENROUTER_API_KEY=.\+' "$OPENROUTER_ENV"; then
-    OPENROUTER_API_KEY="$(grep '^OPENROUTER_API_KEY=' "$OPENROUTER_ENV" | head -1 | cut -d= -f2-)"
-    export OPENROUTER_API_KEY
-    # Model is read from the same file so it can be changed without touching this script.
-    DOCMIND_LLM_MODEL="${DOCMIND_LLM_MODEL:-$(grep '^OPENROUTER_LLM_MODEL=' "$OPENROUTER_ENV" | head -1 | cut -d= -f2-)}"
-    export DOCMIND_LLM_BACKEND_CHOICE="${DOCMIND_LLM_BACKEND_CHOICE:-openai_compatible}"
-    # Free by default: the credit on this key is small, and a free instructed model with a
-    # large context is enough for grounded synthesis. Override with OPENROUTER_LLM_MODEL in
-    # ~/.hermes/.env to use a paid one.
+if [ "$ONLY_V2" -eq 0 ]; then
+    # DocMind's synthesis backend is selectable (see the compose override). The local Ollama
+    # model takes ~290s per answer on this CPU-only host, which makes a multi-query agent run
+    # unusable, so when an OpenRouter key is available synthesis is pointed at it. Embeddings
+    # stay local either way — moving them would invalidate the ingested corpus and force a
+    # full re-ingest.
     #
-    # Model choice here is empirical, not theoretical: most popular :free models on
-    # OpenRouter answer 429 ("temporarily rate-limited upstream ... shared_pool") because
-    # everyone shares the upstream provider's quota. gemma-4-*:free and openrouter/free
-    # were consistently 429; the nvidia nemotron :free models answered. Verify a candidate
-    # with a one-line curl before wiring it in.
-    #
-    # Free models are also capped per minute, so a long agent run can hit the limit —
-    # switch to a paid model (e.g. meta-llama/llama-3.3-70b-instruct, ~$0.10/M in, roughly
-    # $0.0005 per query) when that becomes a problem.
-    export DOCMIND_LLM_MODEL="${DOCMIND_LLM_MODEL:-nvidia/nemotron-3-super-120b-a12b:free}"
-    export DOCMIND_OPENAI_API_KEY="$OPENROUTER_API_KEY"
-    log "DocMind synthesis: OpenRouter (model $DOCMIND_LLM_MODEL)"
-else
-    log "DocMind synthesis: local Ollama (no OPENROUTER_API_KEY in $OPENROUTER_ENV)"
-fi
-
-if [ -f ".env" ]; then
-    OMNIROUTE_BASE_URL="${OMNIROUTE_BASE_URL:-$(grep -E '^OMNIROUTE_BASE_URL=' .env | head -1 | cut -d= -f2-)}"
-    OMNIROUTE_DISCOVERY_URL="${OMNIROUTE_DISCOVERY_URL:-$(grep -E '^OMNIROUTE_DISCOVERY_URL=' .env | head -1 | cut -d= -f2-)}"
-    OMNIROUTE_API_KEY="${OMNIROUTE_API_KEY:-$(grep -E '^OMNIROUTE_API_KEY=' .env | head -1 | cut -d= -f2-)}"
-    OMNIROUTE_MODEL="${OMNIROUTE_MODEL:-$(grep -E '^OMNIROUTE_MODEL=' .env | head -1 | cut -d= -f2-)}"
-fi
-
-if [ -n "$OMNIROUTE_BASE_URL" ] && [ -n "$OMNIROUTE_DISCOVERY_URL" ]; then
-    export DOCMIND_LLM_BACKEND_CHOICE="openai_compatible"
-fi
-
-if [ "$DOCMIND_LLM_BACKEND_CHOICE" = "openai_compatible" ] && [ -n "$OMNIROUTE_DISCOVERY_URL" ]; then
-    log "Running OmniRoute proxy pre-flight check..."
-    if ! OMNIROUTE_DISCOVERY_URL="$OMNIROUTE_DISCOVERY_URL" OMNIROUTE_MODEL="$OMNIROUTE_MODEL" OMNIROUTE_API_KEY="$OMNIROUTE_API_KEY" python3 scripts/omniroute_check.py; then
-        log "ERROR: OmniRoute discovery check failed. Aborting startup."
-        exit 1
+    # The key lives in ~/.hermes/.env, which Docker Compose does not read: compose only loads
+    # <project>/.env. It is bridged into the environment here instead, so the stack picks it
+    # up both at boot and by hand. Without a key the override falls back to the local model
+    # and everything still works, just slowly.
+    OPENROUTER_ENV="${OPENROUTER_ENV:-$HOME/.hermes/.env}"
+    if [ -f "$OPENROUTER_ENV" ] && grep -q '^OPENROUTER_API_KEY=.\+' "$OPENROUTER_ENV"; then
+        OPENROUTER_API_KEY="$(grep '^OPENROUTER_API_KEY=' "$OPENROUTER_ENV" | head -1 | cut -d= -f2-)"
+        export OPENROUTER_API_KEY
+        # Model is read from the same file so it can be changed without touching this script.
+        DOCMIND_LLM_MODEL="${DOCMIND_LLM_MODEL:-$(grep '^OPENROUTER_LLM_MODEL=' "$OPENROUTER_ENV" | head -1 | cut -d= -f2-)}"
+        export DOCMIND_LLM_BACKEND_CHOICE="${DOCMIND_LLM_BACKEND_CHOICE:-openai_compatible}"
+        # Free by default: the credit on this key is small, and a free instructed model with a
+        # large context is enough for grounded synthesis. Override with OPENROUTER_LLM_MODEL in
+        # ~/.hermes/.env to use a paid one.
+        #
+        # Model choice here is empirical, not theoretical: most popular :free models on
+        # OpenRouter answer 429 ("temporarily rate-limited upstream ... shared_pool") because
+        # everyone shares the upstream provider's quota. gemma-4-*:free and openrouter/free
+        # were consistently 429; the nvidia nemotron :free models answered. Verify a candidate
+        # with a one-line curl before wiring it in.
+        #
+        # Free models are also capped per minute, so a long agent run can hit the limit —
+        # switch to a paid model (e.g. meta-llama/llama-3.3-70b-instruct, ~$0.10/M in, roughly
+        # $0.0005 per query) when that becomes a problem.
+        export DOCMIND_LLM_MODEL="${DOCMIND_LLM_MODEL:-nvidia/nemotron-3-super-120b-a12b:free}"
+        export DOCMIND_OPENAI_API_KEY="$OPENROUTER_API_KEY"
+        log "DocMind synthesis: OpenRouter (model $DOCMIND_LLM_MODEL)"
+    else
+        log "DocMind synthesis: local Ollama (no OPENROUTER_API_KEY in $OPENROUTER_ENV)"
     fi
-    export DOCMIND_OPENAI_BASE_URL="$OMNIROUTE_BASE_URL"
-    export DOCMIND_OPENAI_API_KEY="${OMNIROUTE_API_KEY:-${OPENROUTER_API_KEY:-}}"
-    export DOCMIND_LLM_MODEL="$OMNIROUTE_MODEL"
-    log "DocMind synthesis configured via OmniRoute proxy: $DOCMIND_LLM_MODEL"
-fi
 
-compose_up "DocMind" "$DOCMIND_DIR"
+    if [ -f ".env" ]; then
+        OMNIROUTE_BASE_URL="${OMNIROUTE_BASE_URL:-$(grep -E '^OMNIROUTE_BASE_URL=' .env | head -1 | cut -d= -f2-)}"
+        OMNIROUTE_DISCOVERY_URL="${OMNIROUTE_DISCOVERY_URL:-$(grep -E '^OMNIROUTE_DISCOVERY_URL=' .env | head -1 | cut -d= -f2-)}"
+        OMNIROUTE_API_KEY="${OMNIROUTE_API_KEY:-$(grep -E '^OMNIROUTE_API_KEY=' .env | head -1 | cut -d= -f2-)}"
+        OMNIROUTE_MODEL="${OMNIROUTE_MODEL:-$(grep -E '^OMNIROUTE_MODEL=' .env | head -1 | cut -d= -f2-)}"
+    fi
+
+    if [ -n "$OMNIROUTE_BASE_URL" ] && [ -n "$OMNIROUTE_DISCOVERY_URL" ]; then
+        export DOCMIND_LLM_BACKEND_CHOICE="openai_compatible"
+    fi
+
+    if [ "$DOCMIND_LLM_BACKEND_CHOICE" = "openai_compatible" ] && [ -n "$OMNIROUTE_DISCOVERY_URL" ]; then
+        log "Running OmniRoute proxy pre-flight check..."
+        if ! OMNIROUTE_DISCOVERY_URL="$OMNIROUTE_DISCOVERY_URL" OMNIROUTE_MODEL="$OMNIROUTE_MODEL" OMNIROUTE_API_KEY="$OMNIROUTE_API_KEY" python3 scripts/omniroute_check.py; then
+            log "ERROR: OmniRoute discovery check failed. Aborting startup."
+            exit 1
+        fi
+        export DOCMIND_OPENAI_BASE_URL="$OMNIROUTE_BASE_URL"
+        export DOCMIND_OPENAI_API_KEY="${OMNIROUTE_API_KEY:-${OPENROUTER_API_KEY:-}}"
+        export DOCMIND_LLM_MODEL="$OMNIROUTE_MODEL"
+        log "DocMind synthesis configured via OmniRoute proxy: $DOCMIND_LLM_MODEL"
+    fi
+
+    compose_up "DocMind" "$DOCMIND_DIR"
+fi
 
 # firecrest-mcp: a host process. The systemd unit owns its lifecycle, so here we only
 # report it — starting a second copy would fail on the port and look like a crash.
