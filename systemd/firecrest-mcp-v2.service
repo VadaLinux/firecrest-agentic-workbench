@@ -33,12 +33,16 @@ Restart=on-failure
 RestartSec=5
 
 # Hardening that does not touch the server's own work: it reads its code and .env, writes
-# logs under firecrest-mcp/logs only, and talks to the network.
+# logs under firecrest-mcp/logs and downloads under firecrest-mcp/downloads only, and talks
+# to the network.
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full
 ProtectHome=read-only
+# download_file writes to ./downloads relative to the working directory. With
+# ProtectHome=read-only it must be listed here too.
 ReadWritePaths=/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/logs
+ReadWritePaths=/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/downloads
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes

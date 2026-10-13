@@ -67,8 +67,10 @@ bound to `0.0.0.0`. Public access goes through a Cloudflare tunnel protected by 
 Access (see below).
 
 The unit sets `User=master`, `FIRECREST_API_VERSION=v2`, and absolute log paths under
-`firecrest-mcp/logs/` (`FIRECREST_V2_LOG_DIR`, `FCAGENT_AUDIT_PATH`), which are the only
-writable locations. Secrets stay in `firecrest-mcp/.env` (mode 600, gitignored).
+`firecrest-mcp/logs/` (`FIRECREST_V2_LOG_DIR`, `FCAGENT_AUDIT_PATH`). The only writable
+locations are `firecrest-mcp/logs/` (logs and audit) and `firecrest-mcp/downloads/`
+(files fetched by `download_file`, relative to the working directory). Secrets stay in
+`firecrest-mcp/.env` (mode 600, gitignored).
 
 #### Public hostname behind the tunnel
 
@@ -83,7 +85,8 @@ FIRECREST_MCP_PUBLIC_HOST=mcp.example.org   # bare hostname, set by the owner
 
 When it is set, the allowlist adds that host (and `https://<host>` as Origin) to the
 localhost entries. When it is not set, the SDK default is used unchanged. The variable is
-rejected if it is a URL, contains a slash or a space, or is `*` or `localhost`.
+accepted only as a bare DNS hostname, without scheme, port, path, user or wildcard; an IP
+literal is rejected too. An invalid value stops the server at startup with a message on stderr.
 
 Checked locally: `Host: 127.0.0.1:<port>` and the public host return 200, an unknown host
 returns 421 (end-to-end test with the installed `mcp` SDK, nothing exposed).

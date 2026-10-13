@@ -22,6 +22,7 @@ import argparse
 import base64
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -422,26 +423,35 @@ def _announce(mode: str) -> None:
         )
 
 
-def _http_transport_security(host: str):
+# A DNS name: dot-separated labels of letters, digits and hyphens, no leading or trailing
+# hyphen in a label, no port, no scheme, no user, no wildcard. Used for FIRECREST_MCP_PUBLIC_HOST.
+_DNS_HOSTNAME = re.compile(
+    r"^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$"
+)
+
+
+def _http_transport_security():
     """DNS-rebinding allowlist for the Streamable HTTP transport.
 
-    The MCP SDK enables DNS-rebinding protection by itself only when the bind host is
+    The MCP SDK turns on DNS-rebinding protection by itself only when the bind host is
     localhost, and then allows only localhost Host/Origin values. Behind a Cloudflare
-    tunnel the requests arrive with the public hostname in ``Host:`` and would be
-    refused with 421. The public hostname is therefore read from
-    ``FIRECREST_MCP_PUBLIC_HOST`` in ``.env`` and added to the allowlist; it is never
-    hard-coded here. Without the variable, the SDK default is used unchanged.
-
-    The bind host itself is not changed: the server must stay on 127.0.0.1.
+    tunnel the requests arrive with the public hostname in ``Host:`` and would be refused
+    with 421. The public hostname comes from ``FIRECREST_MCP_PUBLIC_HOST`` in ``.env`` and
+    is added to the allowlist; it is never hard-coded here. Without the variable the SDK
+    default is used unchanged. The bind host is not changed by this function.
     """
     from mcp.server.transport_security import TransportSecuritySettings
 
     public_host = os.environ.get("FIRECREST_MCP_PUBLIC_HOST", "").strip().lower()
     if not public_host:
         return None  # SDK default, as before this change
-    if "/" in public_host or " " in public_host or public_host in ("*", "localhost"):
+    # An all-numeric last label is an IPv4 literal, not a DNS name: reject it too.
+    looks_like_ipv4 = re.fullmatch(r"[0-9.]+", public_host) is not None
+    if looks_like_ipv4 or not _DNS_HOSTNAME.fullmatch(public_host):
         raise FirecRESTError(
-            "FIRECREST_MCP_PUBLIC_HOST must be a bare hostname (for example mcp.example.org)"
+            "FIRECREST_MCP_PUBLIC_HOST must be a bare DNS hostname such as mcp.example.org "
+            "(no scheme, port, path, user, wildcard or IP address); got an invalid value. "
+            "Fix firecrest-mcp/.env and start again."
         )
     local = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
     return TransportSecuritySettings(
@@ -491,7 +501,7 @@ def main(argv: list[str] | None = None) -> int:
             transport="streamable-http",
             host=args.host,
             port=args.port,
-            transport_security=_http_transport_security(args.host),
+            transport_security=_http_transport_security(),
         )
     else:
         logger.info("serving stdio")
