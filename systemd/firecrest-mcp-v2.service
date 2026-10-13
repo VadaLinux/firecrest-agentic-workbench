@@ -40,9 +40,10 @@ PrivateTmp=yes
 ProtectSystem=full
 ProtectHome=read-only
 # download_file writes to ./downloads relative to the working directory. With
-# ProtectHome=read-only it must be listed here too.
+# ProtectHome=read-only it must be listed here too. The leading '-' makes a missing path
+# non-fatal (the directory is created on first use); create it once on the VPS with owner master.
 ReadWritePaths=/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/logs
-ReadWritePaths=/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/downloads
+ReadWritePaths=-/home/master/Sviluppo/firecrest-agentic-workbench/firecrest-mcp/downloads
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes

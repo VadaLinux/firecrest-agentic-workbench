@@ -467,6 +467,15 @@ def _http_transport_security():
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except FirecRESTError as exc:
+        # Configuration errors are reported in one clean line, not as a traceback.
+        print(f"firecrest-mcp: configuration error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="MCP server exposing FirecREST to an agent."
     )
