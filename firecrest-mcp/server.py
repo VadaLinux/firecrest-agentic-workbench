@@ -422,6 +422,40 @@ def _announce(mode: str) -> None:
         )
 
 
+def _http_transport_security(host: str):
+    """DNS-rebinding allowlist for the Streamable HTTP transport.
+
+    The MCP SDK enables DNS-rebinding protection by itself only when the bind host is
+    localhost, and then allows only localhost Host/Origin values. Behind a Cloudflare
+    tunnel the requests arrive with the public hostname in ``Host:`` and would be
+    refused with 421. The public hostname is therefore read from
+    ``FIRECREST_MCP_PUBLIC_HOST`` in ``.env`` and added to the allowlist; it is never
+    hard-coded here. Without the variable, the SDK default is used unchanged.
+
+    The bind host itself is not changed: the server must stay on 127.0.0.1.
+    """
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    public_host = os.environ.get("FIRECREST_MCP_PUBLIC_HOST", "").strip().lower()
+    if not public_host:
+        return None  # SDK default, as before this change
+    if "/" in public_host or " " in public_host or public_host in ("*", "localhost"):
+        raise FirecRESTError(
+            "FIRECREST_MCP_PUBLIC_HOST must be a bare hostname (for example mcp.example.org)"
+        )
+    local = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=local + [public_host, f"{public_host}:*"],
+        allowed_origins=[
+            "http://127.0.0.1:*",
+            "http://localhost:*",
+            "http://[::1]:*",
+            f"https://{public_host}",
+        ],
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="MCP server exposing FirecREST to an agent."
@@ -453,7 +487,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.transport == "http":
         logger.info("serving Streamable HTTP on %s:%d", args.host, args.port)
-        server.run(transport="streamable-http", host=args.host, port=args.port)
+        server.run(
+            transport="streamable-http",
+            host=args.host,
+            port=args.port,
+            transport_security=_http_transport_security(args.host),
+        )
     else:
         logger.info("serving stdio")
         server.run(transport="stdio")

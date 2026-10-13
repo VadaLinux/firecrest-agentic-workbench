@@ -58,6 +58,36 @@ Multica backend uses 8080. It keeps Docker builds amd64-only and never edits ups
 tracked content. `env-up` does adjust host-local key permissions and, under SELinux,
 bind-mount labels (`container_file_t`; see `docs/ENVIRONMENT.md`).
 
+### The MCP server as a system unit (`systemd/firecrest-mcp-v2.service`)
+
+The FirecREST v2 MCP server runs as a system unit on the VPS, separate from the
+workstation's user unit `systemd/firecrest-mcp.service`, which is not changed. It binds
+`127.0.0.1:8765` only; the server has no authentication of its own, so it must never be
+bound to `0.0.0.0`. Public access goes through a Cloudflare tunnel protected by Cloudflare
+Access (see below).
+
+The unit sets `User=master`, `FIRECREST_API_VERSION=v2`, and absolute log paths under
+`firecrest-mcp/logs/` (`FIRECREST_V2_LOG_DIR`, `FCAGENT_AUDIT_PATH`), which are the only
+writable locations. Secrets stay in `firecrest-mcp/.env` (mode 600, gitignored).
+
+#### Public hostname behind the tunnel
+
+Through the tunnel, requests arrive with `Host:` set to the public name, not `127.0.0.1`.
+The MCP SDK enables DNS-rebinding protection by itself only for a localhost bind, and then
+allows only localhost values, so it would answer `421`. The server therefore reads the
+public hostname from `.env`:
+
+```dotenv
+FIRECREST_MCP_PUBLIC_HOST=mcp.example.org   # bare hostname, set by the owner
+```
+
+When it is set, the allowlist adds that host (and `https://<host>` as Origin) to the
+localhost entries. When it is not set, the SDK default is used unchanged. The variable is
+rejected if it is a URL, contains a slash or a space, or is `*` or `localhost`.
+
+Checked locally: `Host: 127.0.0.1:<port>` and the public host return 200, an unknown host
+returns 421 (end-to-end test with the installed `mcp` SDK, nothing exposed).
+
 ## Configure and smoke-test
 
 Copy `firecrest-mcp/.env.example` to gitignored `firecrest-mcp/.env`, then set
