@@ -219,3 +219,145 @@ async def test_status_and_download_update_the_card_of_managed_jobs_only(
     assert (await server.get_job_status("7"))["ok"] is True
     assert (await server.download_file("/x/y.txt", job_id="7"))["ok"] is True
     assert not (env.state / "jobs" / "7").exists()
+
+
+class PyFirecrestLike:
+    """Mimics pyfirecrest 3.10: ``server_version`` is a blocking *method*."""
+
+    def __init__(self) -> None:
+        self.version_calls = 0
+
+    def server_version(self) -> str:
+        self.version_calls += 1
+        return "2.6.1"
+
+    def submit(self, *a: Any, **k: Any) -> dict[str, Any]:
+        return {"jobId": "99"}
+
+    def job_metadata(self, *a: Any, **k: Any) -> list[dict[str, Any]]:
+        return [{"standardOutput": "/o", "standardError": "/e"}]
+
+
+def _real_client(fake: Any, tmp_path: Path) -> FirecRESTClientV2:
+    from client_v2 import FirecRESTConfigV2
+
+    config = FirecRESTConfigV2(
+        base_url="http://x",
+        token_url="http://x/t",
+        client_id="id",
+        client_secret="s",
+        system="cluster",
+        log_dir=tmp_path / "logs",
+    )
+    client = FirecRESTClientV2(config, factory=lambda _: fake)
+    client.last_trace = {"x_correlation_id": "submit-cid", "x_request_id": None}
+    return client
+
+
+async def test_server_version_method_is_serialized_and_keeps_submit_trace(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = PyFirecrestLike()
+    real = _real_client(fake, tmp_path)
+
+    async def submit(**kwargs: Any) -> Any:
+        return SimpleNamespace(jobid="99", job_file_out="/o", job_file_err="/e")
+
+    monkeypatch.setattr(real, "submit_job", submit)
+
+    async def client():
+        return real
+
+    monkeypatch.setattr(server, "get_client", client)
+    prepared = await _prepare()
+    _approve(env, prepared["prepared_id"])
+    result = await server.submit_job(prepared_id=prepared["prepared_id"])
+    assert result["ok"] is True and result["jobid"] == "99"
+    assert "warnings" not in result
+    assert fake.version_calls == 1
+    card = (await server.get_provenance("99"))["provenance"]
+    assert card["versions"]["firecrest_server"] == "2.6.1"
+    assert card["trace"]["x_correlation_id"] == "submit-cid"
+    assert (await server.rerun_from_provenance("99"))["ok"] is True
+
+
+async def test_get_server_version_never_raises_or_returns_non_strings(
+    tmp_path: Path,
+) -> None:
+    class Broken:
+        def server_version(self) -> str:
+            raise RuntimeError("boom")
+
+    assert await _real_client(Broken(), tmp_path).get_server_version() is None
+    assert await _real_client(PyFirecrestLike(), tmp_path).get_server_version() == "2.6.1"
+
+    class Weird:
+        server_version = 123
+
+    assert await _real_client(Weird(), tmp_path).get_server_version() is None
+
+
+async def test_provenance_failure_after_submit_still_reports_the_job(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeV2()
+
+    async def client():
+        return fake
+
+    def broken_write(self: Any, *a: Any, **k: Any) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(server, "get_client", client)
+    monkeypatch.setattr(server.ProvenanceStore, "write", broken_write)
+    prepared = await _prepare()
+    _approve(env, prepared["prepared_id"])
+    result = await server.submit_job(prepared_id=prepared["prepared_id"])
+    assert result["ok"] is True and result["jobid"] == "99"
+    assert result["provenance_error"] is True
+    assert "provenance_error" in result["warnings"]
+    assert "WAS submitted" in result["provenance"]
+    again = await server.submit_job(prepared_id=prepared["prepared_id"])
+    assert again["reason"] == "prepared_already_consumed" and len(fake.calls) == 1
+    audit = env.audit.read_text()
+    assert '"outcome": "submitted"' in audit
+
+
+async def test_slow_server_version_times_out_but_submit_reports_the_job(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import threading
+    import time
+
+    release = threading.Event()
+
+    class Slow(PyFirecrestLike):
+        def server_version(self) -> str:
+            release.wait(10)
+            return "2.6.1"
+
+    real = _real_client(Slow(), tmp_path)
+    real.config = SimpleNamespace(timeout_s=0.2)  # type: ignore[assignment]
+
+    async def submit(**kwargs: Any) -> Any:
+        return SimpleNamespace(jobid="99", job_file_out="/o", job_file_err="/e")
+
+    monkeypatch.setattr(real, "submit_job", submit)
+
+    async def client():
+        return real
+
+    monkeypatch.setattr(server, "get_client", client)
+    prepared = await _prepare()
+    _approve(env, prepared["prepared_id"])
+    started = time.monotonic()
+    try:
+        result = await server.submit_job(prepared_id=prepared["prepared_id"])
+    finally:
+        release.set()
+    assert time.monotonic() - started < 3
+    assert result["ok"] is True and result["jobid"] == "99"
+    assert "warnings" not in result
+    card = (await server.get_provenance("99"))["provenance"]
+    assert card["versions"]["firecrest_server"] is None
+    assert card["trace"]["x_correlation_id"] == "submit-cid"

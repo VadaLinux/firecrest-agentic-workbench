@@ -203,7 +203,9 @@ def _update_card_status(job_id: str, job: dict[str, Any]) -> None:
         logger.warning("could not update provenance for job %s", job_id)
 
 
-def _versions(client: FirecRESTClientV2, settings: CoreSettings) -> dict[str, Any]:
+async def _versions(
+    client: FirecRESTClientV2, settings: CoreSettings
+) -> dict[str, Any]:
     try:
         import importlib.metadata as md
 
@@ -212,7 +214,7 @@ def _versions(client: FirecRESTClientV2, settings: CoreSettings) -> dict[str, An
         pyfc = None
     root = settings.template_directory.parent
     return {
-        "firecrest_server": getattr(client, "server_version", None),
+        "firecrest_server": await client.get_server_version(),
         "pyfirecrest": pyfc,
         "workbench_commit": workbench_commit(root),
     }
@@ -250,29 +252,50 @@ async def _submit_prepared(
             prepared_id=prepared_id,
         )
         raise
-    service.audit_submitted(actor, job, result.jobid)
-    store = ProvenanceStore(settings.state_dir)
-    store.write(
-        result.jobid,
-        store.initial_card(
-            context=ctx,
-            approval=job.approval,
-            prepared_id=prepared_id,
-            job_id=result.jobid,
-            versions=_versions(client, settings),
-            trace=getattr(client, "last_trace", None),
-            submitted_at=datetime.now(UTC).isoformat(),
-        ),
-    )
-    return {
+    # From here on the job EXISTS on the cluster: nothing below may turn this call
+    # into an error, or the agent would prepare a duplicate.
+    trace = getattr(client, "last_trace", None)  # before any further client call
+    warnings: list[str] = []
+    try:
+        service.audit_submitted(actor, job, result.jobid)
+    except Exception:  # noqa: BLE001
+        logger.exception("audit write failed after submit of job %s", result.jobid)
+        warnings.append("audit_error")
+    try:
+        store = ProvenanceStore(settings.state_dir)
+        store.write(
+            result.jobid,
+            store.initial_card(
+                context=ctx,
+                approval=job.approval,
+                prepared_id=prepared_id,
+                job_id=result.jobid,
+                versions=await _versions(client, settings),
+                trace=trace,
+                submitted_at=datetime.now(UTC).isoformat(),
+            ),
+        )
+        provenance = f"Call get_provenance with job_id={result.jobid}."
+    except Exception:  # noqa: BLE001
+        logger.exception("provenance write failed for job %s", result.jobid)
+        warnings.append("provenance_error")
+        provenance = (
+            "The reproducibility card could not be written; the job WAS submitted. "
+            "Do not prepare it again; tell the operator."
+        )
+    response: dict[str, Any] = {
         "ok": True,
         "jobid": result.jobid,
         "system": ctx["system"],
         "stdout_path": result.job_file_out,
         "stderr_path": result.job_file_err,
-        "provenance": f"Call get_provenance with job_id={result.jobid}.",
+        "provenance": provenance,
         "next_step": f"Call get_job_status with job_id={result.jobid} to watch it.",
     }
+    if warnings:
+        response["warnings"] = warnings
+        response["provenance_error"] = "provenance_error" in warnings
+    return response
 
 
 @server.tool()
