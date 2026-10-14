@@ -474,3 +474,14 @@ FirecREST v2 behaviour) — so `echo $GREETING` above actually printed an empty 
 in the real run, not `hello-v2`. Flagged here rather than silently smoothed over,
 per this project's own citation rule: say when something you observed doesn't match
 what the request implied.
+
+## Approval and provenance tools (CRIGAMO-139)
+
+| Tool | Use it when | Notes |
+|---|---|---|
+| `list_templates` | before running anything | approved templates + typed parameters |
+| `prepare_job` | the user wants a job run | returns `prepared_id`, summary, node-hours; submits nothing |
+| `submit_job(prepared_id)` | after a human ran `fcagent approve <prepared_id>` | **breaking:** no `script`, no `approved_by`; single use |
+| `download_file(path, job_id)` | saving a job output | records path + SHA-256 in the job's card |
+| `get_provenance(job_id)` | "how was this run?" / reproduce | card in `runs/jobs/<jobId>/` (gitignored) |
+| `rerun_from_provenance(job_id)` | rerun a past job | checks rendered-script hash, then needs a new approval |

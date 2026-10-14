@@ -1,0 +1,14 @@
+# Drop-in TEMPLATE for firecrest-mcp-v2.service (CRIGAMO-139). Not installed by
+# anything in this repository: the operator copies it, after review, to
+#   /etc/systemd/system/firecrest-mcp-v2.service.d/approval.conf
+# and runs `systemctl daemon-reload && systemctl restart firecrest-mcp-v2`.
+# See docs/reproducibility.md ("Operator procedure"). Adjust the paths.
+[Service]
+# Absolute state dir: prepared records, consumed markers, provenance cards.
+# Outside the repository checkout and the agent workspace.
+Environment=FCAGENT_STATE_DIR=/var/lib/fcagent
+# PUBLIC key only (path, never a value). The private key never reaches this unit.
+Environment=FCAGENT_APPROVAL_PUBLIC_KEY=/etc/fcagent/approval.pub
+# ProtectHome=read-only is set in the base unit; /var/lib is covered by
+# ProtectSystem=full only for /usr, /boot, /etc, so list the state dir explicitly.
+ReadWritePaths=/var/lib/fcagent

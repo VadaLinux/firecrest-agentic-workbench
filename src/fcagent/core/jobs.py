@@ -1,4 +1,4 @@
-"""Approved-template job submission guards with dependency-injected execution."""
+"""Approved-template job preparation and human-approved submission guards."""
 
 from __future__ import annotations
 
@@ -11,8 +11,20 @@ from typing import Any, Protocol
 
 import yaml
 
+from fcagent.core.approval import ApprovalStore, load_public_key
 from fcagent.core.audit import AuditLog
+from fcagent.core.errors import GuardrailDenied
 from fcagent.core.settings import Limits
+
+__all__ = [
+    "GuardrailDenied",
+    "JobClient",
+    "JobService",
+    "PreparedJob",
+    "SAFE_STRING",
+    "TemplateSpec",
+    "parameters_hash",
+]
 
 SAFE_STRING = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -23,14 +35,6 @@ class JobClient(Protocol):
     def submit_job(
         self, script: str, system: str, working_directory: str, partition: str
     ) -> str: ...
-
-
-class GuardrailDenied(ValueError):
-    """A submission was rejected before template rendering or a remote call."""
-
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -48,17 +52,27 @@ def parameters_hash(parameters: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-@dataclass(frozen=True)
-class PreparedSubmission:
-    """A guardrail-approved script with its safe audit identifier."""
+def _sha256(text: str | bytes) -> str:
+    data = text.encode() if isinstance(text, str) else text
+    return hashlib.sha256(data).hexdigest()
 
+
+@dataclass(frozen=True)
+class PreparedJob:
+    """A human-approved, verified submission ready to send to FirecREST."""
+
+    prepared_id: str
     script: str
-    parameters_hash: str
-    partition: str
+    context: dict[str, Any]
+    approval: dict[str, Any]
+
+    @property
+    def partition(self) -> str:
+        return str(self.context["partition"])
 
 
 class JobService:
-    """Validate, render, audit and optionally submit an approved job template."""
+    """Validate, render, audit and gate a job on explicit human approval."""
 
     def __init__(
         self,
@@ -67,126 +81,218 @@ class JobService:
         limits: Limits,
         audit: AuditLog,
         client: JobClient | None,
+        store: ApprovalStore | None = None,
+        public_key_path: Path | None = None,
     ) -> None:
         self.template_directory = template_directory.resolve()
         self.limits = limits
         self.audit = audit
         self.client = client
+        self.store = store
+        if store is not None and store.audit is None:
+            store.audit = audit
+        self.public_key_path = public_key_path
 
-    def prepare_submission(
+    # ------------------------------------------------------------ prepare
+    def list_templates(self) -> list[dict[str, Any]]:
+        """Describe every approved template and its typed parameters."""
+        found = []
+        for schema in sorted(self.template_directory.glob("*.yaml")):
+            if not (schema.with_suffix(".sh")).is_file():
+                continue
+            raw = yaml.safe_load(schema.read_text()) or {}
+            found.append(
+                {"template": schema.stem, "parameters": raw.get("parameters", {})}
+            )
+        return found
+
+    def render(
+        self,
+        *,
+        template: str,
+        parameters: dict[str, Any],
+        working_directory: str,
+    ) -> tuple[TemplateSpec, str]:
+        """Validate every guardrail and render; raises GuardrailDenied."""
+        spec = self._load_template(template)
+        self._validate(parameters, spec, working_directory)
+        return spec, self._render(spec, parameters)
+
+    def prepare(
         self,
         *,
         actor: str,
         system: str,
         template: str,
         parameters: dict[str, Any],
-        approved_by: str | None,
         working_directory: str,
-        dry_run: bool = False,
-    ) -> PreparedSubmission | dict[str, Any]:
-        """Run every guardrail and render before an MCP handler contacts FirecREST."""
-        digest = parameters_hash(parameters)
-        try:
-            spec = self._load_template(template)
-            self._validate(parameters, spec, approved_by, working_directory)
-            script = self._render(spec, parameters)
-        except GuardrailDenied as exc:
-            self.audit.write(
-                actor=actor,
-                action="submit_job",
-                system=system,
-                template=template,
-                parameters_hash=digest,
-                job_id=None,
-                outcome="denied",
-                reason=exc.reason,
-            )
-            raise
-        if dry_run:
-            self.audit.write(
-                actor=actor,
-                action="submit_job",
-                system=system,
-                template=template,
-                parameters_hash=digest,
-                job_id=None,
-                outcome="dry_run",
-            )
-            return {"script": script, "dry_run": True}
-        return PreparedSubmission(script, digest, str(parameters["partition"]))
-
-    def submit_job(
-        self,
-        *,
-        actor: str,
-        system: str,
-        template: str,
-        parameters: dict[str, Any],
-        approved_by: str | None,
-        working_directory: str,
-        dry_run: bool = False,
+        account: str | None = None,
     ) -> dict[str, Any]:
-        """Apply all guards, then render or submit through the injected adapter."""
+        """Render, store a pending record and return a human-readable summary."""
+        if self.store is None:
+            raise RuntimeError("No approval store is configured")
         digest = parameters_hash(parameters)
         try:
-            spec = self._load_template(template)
-            self._validate(parameters, spec, approved_by, working_directory)
-            script = self._render(spec, parameters)
-        except GuardrailDenied as exc:
-            self.audit.write(
-                actor=actor,
-                action="submit_job",
-                system=system,
+            spec, script = self.render(
                 template=template,
-                parameters_hash=digest,
-                job_id=None,
-                outcome="denied",
-                reason=exc.reason,
+                parameters=parameters,
+                working_directory=working_directory,
+            )
+        except GuardrailDenied as exc:
+            self._audit(
+                actor, "prepare_job", system, template, digest, "denied", exc.reason
             )
             raise
+        created_at, expires_at = self.store.expiry()
+        node_hours = round(
+            int(parameters.get("nodes", 1))
+            * int(parameters.get("time_minutes", 0))
+            / 60,
+            4,
+        )
+        context = {
+            "template": template,
+            "template_sha256": _sha256(spec.path.read_bytes()),
+            "script_sha256": _sha256(script),
+            "parameters": parameters,
+            "parameters_hash": digest,
+            "system": system,
+            "partition": str(parameters["partition"]),
+            "working_directory": working_directory,
+            "account": account,
+            "created_at": created_at,
+            "expires_at": expires_at,
+            "node_hours": node_hours,
+        }
+        record = self.store.create(context)
+        self._audit(
+            actor,
+            "prepare_job",
+            system,
+            template,
+            digest,
+            "prepared",
+            prepared_id=record["prepared_id"],
+        )
+        return {
+            "prepared_id": record["prepared_id"],
+            "expires_at": expires_at,
+            "summary": summarize(context),
+            "next_step": (
+                "Ask a human to run `fcagent approve "
+                f"{record['prepared_id']}`; then call submit_job(prepared_id)."
+            ),
+        }
 
-        if dry_run:
-            self.audit.write(
-                actor=actor,
-                action="submit_job",
-                system=system,
-                template=template,
-                parameters_hash=digest,
-                job_id=None,
-                outcome="dry_run",
+    # ------------------------------------------------------------- submit
+    def claim(self, *, actor: str, prepared_id: str) -> PreparedJob:
+        """Verify the signed approval and consume it once, before any remote call."""
+        if self.store is None or self.public_key_path is None:
+            raise GuardrailDenied("approval_key_not_configured")
+        context: dict[str, Any] = {}
+        try:
+            key = load_public_key(self.public_key_path)
+            holder: dict[str, str] = {}
+
+            def check(ctx: dict[str, Any]) -> None:
+                context.update(ctx)
+                _, script = self.render(
+                    template=ctx["template"],
+                    parameters=ctx["parameters"],
+                    working_directory=ctx["working_directory"],
+                )
+                spec = self._load_template(ctx["template"])
+                if (
+                    _sha256(script) != ctx["script_sha256"]
+                    or _sha256(spec.path.read_bytes()) != ctx["template_sha256"]
+                    or parameters_hash(ctx["parameters"]) != ctx["parameters_hash"]
+                ):
+                    raise GuardrailDenied("prepared_context_changed")
+                holder["script"] = script
+
+            record = self.store.claim(prepared_id, key, check=check)
+        except GuardrailDenied as exc:
+            self._audit(
+                actor,
+                "submit_job",
+                context.get("system", ""),
+                context.get("template"),
+                context.get("parameters_hash"),
+                "denied",
+                exc.reason,
+                prepared_id=prepared_id,
             )
-            return {"script": script, "dry_run": True}
+            raise
+        return PreparedJob(
+            prepared_id, holder["script"], record["context"], record["approval"]
+        )
 
+    def submit(self, *, actor: str, prepared_id: str) -> dict[str, Any]:
+        """Synchronous submission through the injected adapter (used by tests)."""
+        job = self.claim(actor=actor, prepared_id=prepared_id)
+        ctx = job.context
         try:
             if self.client is None:
                 raise RuntimeError("No job client is configured")
             job_id = self.client.submit_job(
-                script, system, working_directory, str(parameters["partition"])
+                job.script, ctx["system"], ctx["working_directory"], job.partition
             )
         except Exception as exc:
-            self.audit.write(
-                actor=actor,
-                action="submit_job",
-                system=system,
-                template=template,
-                parameters_hash=digest,
-                job_id=None,
-                outcome="error",
+            self._audit(
+                actor,
+                "submit_job",
+                ctx["system"],
+                ctx["template"],
+                ctx["parameters_hash"],
+                "error",
+                None,
                 exception_type=type(exc).__name__,
                 http_status=getattr(exc, "status", None),
+                prepared_id=prepared_id,
             )
             raise
+        self.audit_submitted(actor, job, job_id)
+        return {"job_id": job_id}
+
+    def audit_submitted(self, actor: str, job: PreparedJob, job_id: str) -> None:
+        ctx = job.context
+        self._audit(
+            actor,
+            "submit_job",
+            ctx["system"],
+            ctx["template"],
+            ctx["parameters_hash"],
+            "submitted",
+            None,
+            job_id=job_id,
+            prepared_id=job.prepared_id,
+            approved_by=job.approval["approver"],
+        )
+
+    def _audit(
+        self,
+        actor: str,
+        action: str,
+        system: str,
+        template: str | None,
+        digest: str | None,
+        outcome: str,
+        reason: str | None = None,
+        **extra: Any,
+    ) -> None:
         self.audit.write(
             actor=actor,
-            action="submit_job",
+            action=action,
             system=system,
             template=template,
             parameters_hash=digest,
-            job_id=job_id,
-            outcome="submitted",
+            job_id=extra.pop("job_id", None),
+            outcome=outcome,
+            reason=reason,
+            **extra,
         )
-        return {"job_id": job_id, "dry_run": False}
 
+    # ---------------------------------------------------------- internals
     def _load_template(self, template: str) -> TemplateSpec:
         if not SAFE_STRING.fullmatch(template):
             raise GuardrailDenied("template_not_allowed")
@@ -203,11 +309,8 @@ class JobService:
         self,
         parameters: dict[str, Any],
         spec: TemplateSpec,
-        approved_by: str | None,
         working_directory: str,
     ) -> None:
-        if not approved_by or not SAFE_STRING.fullmatch(approved_by):
-            raise GuardrailDenied("approved_by_required")
         if not working_directory.startswith("/"):
             raise GuardrailDenied("working_directory_invalid")
         if set(parameters) != set(spec.parameters):
@@ -250,3 +353,18 @@ class JobService:
         if "{{" in script or "}}" in script:
             raise GuardrailDenied("template_rendering_invalid")
         return script
+
+
+def summarize(context: dict[str, Any]) -> str:
+    """Human-readable approval summary bound to the prepared_id."""
+    params = ", ".join(f"{k}={v}" for k, v in sorted(context["parameters"].items()))
+    return (
+        f"Template {context['template']} on system {context['system']} "
+        f"(partition {context['partition']}); parameters: {params}; "
+        f"nodes={context['parameters'].get('nodes')}, "
+        f"time={context['parameters'].get('time_minutes')} min, "
+        f"estimated {context['node_hours']} node-hours; "
+        f"working directory {context['working_directory']}; "
+        f"valid until {context['expires_at']}; "
+        f"script sha256 {context['script_sha256'][:16]}…"
+    )

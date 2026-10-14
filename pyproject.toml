@@ -9,8 +9,12 @@ description = "Scaffold for the FirecREST agentic orchestration layer"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "cryptography==50.0.2",
     "PyYAML==6.0.3",
 ]
+
+[project.scripts]
+fcagent = "fcagent.cli:main"
 
 [dependency-groups]
 dev = [

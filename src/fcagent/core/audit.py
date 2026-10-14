@@ -26,6 +26,8 @@ class AuditLog:
         reason: str | None = None,
         exception_type: str | None = None,
         http_status: int | None = None,
+        prepared_id: str | None = None,
+        approved_by: str | None = None,
     ) -> None:
         record = {
             "ts": datetime.now(UTC).isoformat(),
@@ -43,6 +45,10 @@ class AuditLog:
             record["exception_type"] = exception_type
         if http_status is not None:
             record["http_status"] = http_status
+        if prepared_id is not None:
+            record["prepared_id"] = prepared_id
+        if approved_by is not None:
+            record["approved_by"] = approved_by
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as audit_file:
             audit_file.write(json.dumps(record, sort_keys=True) + "\n")
