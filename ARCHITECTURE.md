@@ -18,7 +18,10 @@ FirecREST v1.16.1 learning demo, which selects a machine with `X-Machine-Name`, 
 `FIRECREST_API_VERSION` selects the client; v1 remains the default so the demo path
 continues to work. Both expose the same deliberately minimal tool surface:
 
-- `submit_job(script, system, account)` → job ID
+- `list_templates()` → approved templates and typed parameters
+- `prepare_job(template, parameters, system, working_directory)` → `prepared_id` + readable summary (human approval pending)
+- `submit_job(prepared_id)` → job ID, only after a human ran `fcagent approve <prepared_id>` (**breaking change**: `script` and `approved_by` are gone; see `docs/reproducibility.md`)
+- `get_provenance(job_id)` / `rerun_from_provenance(job_id)` → reproducibility card, re-approved rerun
 - `get_job_status(job_id)` → state, timestamps
 - `list_files(path)` / `download_file(path)`
 - `get_job_log(job_id)` → stdout/stderr, used by the failure-scenario demo

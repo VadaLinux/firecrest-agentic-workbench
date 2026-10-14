@@ -14,6 +14,8 @@ __pycache__/
 # Existing component-local artifacts
 metamcp/
 firecrest-mcp/logs/
+/runs/
+firecrest-mcp/runs/
 firecrest-mcp/downloads/
 firecrest-mcp/.venv/
 firecrest-mcp/.pytest_cache/

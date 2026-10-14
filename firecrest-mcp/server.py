@@ -7,7 +7,7 @@ Run it:
     python server.py                    # stdio transport (what MetaMCP uses)
     python server.py --transport http   # Streamable HTTP on --host/--port
 
-The tool surface is deliberately small. Five tools, matching `ARCHITECTURE.md`
+The tool surface is deliberately small. A small tool surface, matching `ARCHITECTURE.md`
 exactly — a wider surface is harder for an agent to choose from correctly, and
 harder for CSCS staff to audit.
 
@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,8 +35,11 @@ from mcp.server.mcpserver import MCPServer
 from client import FirecRESTClient, FirecRESTConfig, FirecRESTError
 from client import _load_dotenv as _load_env_file
 from client_v2 import FirecRESTClientV2, FirecRESTConfigV2
+from fcagent.core.approval import ApprovalStore
 from fcagent.core.audit import AuditLog
-from fcagent.core.jobs import JobService, PreparedSubmission
+from fcagent.core.errors import GuardrailDenied
+from fcagent.core.jobs import JobService
+from fcagent.core.provenance import ProvenanceStore, workbench_commit
 from fcagent.core.settings import CoreSettings
 
 logger = logging.getLogger("firecrest-mcp")
@@ -108,116 +112,245 @@ def _fail(exc: Exception) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
+def _core() -> tuple[CoreSettings, JobService]:
+    """Build the job service from environment-configured paths (no secrets)."""
+    settings = CoreSettings.from_env()
+    service = JobService(
+        template_directory=settings.template_directory,
+        limits=settings.limits,
+        audit=AuditLog(settings.audit_path),
+        client=None,
+        store=ApprovalStore(settings.state_dir, settings.approval_ttl_seconds),
+        public_key_path=settings.approval_public_key,
+    )
+    return settings, service
+
+
+def _denied(exc: GuardrailDenied) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": "GuardrailDenied",
+        "reason": exc.reason,
+        "next_step": exc.next_step,
+    }
+
+
 @server.tool()
-async def submit_job(
-    script: str | None = None,
-    system: str | None = None,
-    account: str | None = None,
-    working_directory: str | None = None,
-    *,
-    template: str | None = None,
-    parameters: dict[str, Any] | None = None,
-    approved_by: str | None = None,
-    actor: str = "mcp",
-    dry_run: bool = False,
-) -> dict[str, Any]:
-    """Submit a batch job script to the HPC cluster and get back its job id.
+async def list_templates() -> dict[str, Any]:
+    """List the approved job templates and the typed parameters each one needs.
 
-    Use this when the user asks to run, launch, submit or start something on the
-    cluster — an analysis, a simulation, a script, a command.
-
-    `script` is the complete batch script text, including its `#SBATCH` header.
-    Always send a full script: a minimal one needs at least a partition, e.g.
-
-        #!/bin/bash
-        #SBATCH --job-name=my-job
-        #SBATCH --output=my-job.out
-        #SBATCH --partition=part01
-        echo hello
-
-    `template` must name a file in `templates/`; scripts passed directly are
-    rejected. Supply every declared, typed `parameters` value and `approved_by`.
-    Integer ranges, enum values and safe strings are validated before rendering.
-    `dry_run=true` applies the same guards and returns only the rendered script.
-
-    `system` is the cluster to run on (`part01`/`part02` are the partitions of
-    the demo system `cluster`). If you do not know the system name, call
-    list_files on a path you do know, or check the FirecREST documentation —
-    do not guess.
-
-    `account` is the scheduler project account, only needed if the cluster
-    requires one; it is safe to omit.
-
-    `working_directory` only matters when this server is configured for
-    FirecREST v2 (`FIRECREST_API_VERSION=v2`) — v1 ignores it. For v2 it is
-    **required and must be an absolute path**: call list_files first if you
-    don't already know one. Verified against the v2 demo: a relative value
-    such as `.` is accepted and the job really does run, but v2's own status
-    and metadata responses echo it back unresolved, which makes the job's
-    output unreadable by get_job_log/download_file afterwards — so this tool
-    refuses it upfront rather than submitting a job whose output nothing can
-    read back.
-
-    Returns the job id, plus the remote paths where the job's stdout and stderr
-    will appear. Submission is asynchronous but this waits for the scheduler to
-    accept the job, so a returned job id is a real, queued job.
+    Call this first when the user wants to run something on the cluster. Only
+    these templates can be run; each parameter has a type (`int` with min/max,
+    `enum` with allowed values, or a safe `string` of letters, digits, `_`, `.`
+    and `-`). Then call prepare_job with a template name and every parameter.
     """
     try:
-        if not system:
-            raise FirecRESTError("submit_job requires a target system")
-        if not template:
-            raise FirecRESTError("submit_job accepts only an approved template")
-        if parameters is None:
-            raise FirecRESTError("submit_job requires declared template parameters")
-        settings = CoreSettings.from_env()
-        service = JobService(
-            template_directory=settings.template_directory,
-            limits=settings.limits,
-            audit=AuditLog(settings.audit_path),
-            client=None,
-        )
-        prepared = service.prepare_submission(
+        _, service = _core()
+        return {"ok": True, "templates": service.list_templates()}
+    except Exception as exc:  # noqa: BLE001
+        return _fail(exc)
+
+
+@server.tool()
+async def prepare_job(
+    template: str,
+    parameters: dict[str, Any],
+    system: str,
+    working_directory: str,
+    account: str | None = None,
+    actor: str = "mcp",
+) -> dict[str, Any]:
+    """Prepare an approved-template job and get a `prepared_id` awaiting a human.
+
+    This is step 1 of running anything on the cluster. Choose a `template` from
+    list_templates and pass every declared, typed value in `parameters`. Limits
+    (nodes, time, partition) are checked and the template is rendered, but
+    NOTHING is submitted. You get a `prepared_id`, an expiry, and a readable
+    `summary` (template, parameters, system, partition, nodes, time and an
+    estimate in node-hours) to show the user.
+
+    Next: tell the user to run `fcagent approve <prepared_id>` themselves. You
+    cannot approve a job. After they confirm, call submit_job(prepared_id). If
+    the approval expires or anything changes, prepare again. Never send a free
+    script: only templates are accepted.
+
+    `system` is the cluster name (the demo system is `cluster`); if unknown, ask
+    or use list_files on a known path, do not guess. `working_directory` must be
+    an absolute path.
+    """
+    try:
+        _, service = _core()
+        prepared = service.prepare(
             actor=actor,
             system=system,
             template=template,
             parameters=parameters,
-            approved_by=approved_by,
-            working_directory=working_directory or "",
-            dry_run=dry_run,
-        )
-        if dry_run:
-            return {"ok": True, **prepared}
-        assert isinstance(prepared, PreparedSubmission)
-        client = await get_client()
-        if not isinstance(client, FirecRESTClientV2):
-            raise FirecRESTError(
-                "approved-template submission requires FIRECREST_API_VERSION=v2"
-            )
-        result = await client.submit_job(
-            script=prepared.script,
-            system=system,
-            account=account,
             working_directory=working_directory,
-            partition=prepared.partition,
+            account=account,
         )
+        return {"ok": True, **prepared}
+    except GuardrailDenied as exc:
+        return _denied(exc)
+    except Exception as exc:  # noqa: BLE001
+        return _fail(exc)
+
+
+def _versions(client: FirecRESTClientV2, settings: CoreSettings) -> dict[str, Any]:
+    try:
+        import importlib.metadata as md
+
+        pyfc = md.version("pyfirecrest")
+    except Exception:  # noqa: BLE001
+        pyfc = None
+    root = settings.template_directory.parent
+    return {
+        "firecrest_server": getattr(client, "server_version", None),
+        "pyfirecrest": pyfc,
+        "workbench_commit": workbench_commit(root),
+    }
+
+
+async def _submit_prepared(
+    service: JobService, settings: CoreSettings, prepared_id: str, actor: str
+) -> dict[str, Any]:
+    job = service.claim(actor=actor, prepared_id=prepared_id)
+    ctx = job.context
+    client = await get_client()
+    if not isinstance(client, FirecRESTClientV2):
+        raise FirecRESTError(
+            "approved-template submission requires FIRECREST_API_VERSION=v2"
+        )
+    try:
+        result = await client.submit_job(
+            script=job.script,
+            system=ctx["system"],
+            account=ctx["account"],
+            working_directory=ctx["working_directory"],
+            partition=job.partition,
+        )
+    except Exception as exc:
         service.audit.write(
             actor=actor,
             action="submit_job",
-            system=system,
-            template=template,
-            parameters_hash=prepared.parameters_hash,
-            job_id=result.jobid,
-            outcome="submitted",
+            system=ctx["system"],
+            template=ctx["template"],
+            parameters_hash=ctx["parameters_hash"],
+            job_id=None,
+            outcome="error",
+            exception_type=type(exc).__name__,
+            http_status=getattr(exc, "status", None),
+            prepared_id=prepared_id,
         )
-        return {
-            "ok": True,
-            "jobid": result.jobid,
-            "system": system,
-            "stdout_path": result.job_file_out,
-            "stderr_path": result.job_file_err,
-            "next_step": f"Call get_job_status with job_id={result.jobid} to watch it.",
-        }
+        raise
+    service.audit_submitted(actor, job, result.jobid)
+    store = ProvenanceStore(settings.state_dir)
+    store.write(
+        result.jobid,
+        store.initial_card(
+            context=ctx,
+            approval=job.approval,
+            prepared_id=prepared_id,
+            job_id=result.jobid,
+            versions=_versions(client, settings),
+            trace=getattr(client, "last_trace", None),
+            submitted_at=datetime.now(UTC).isoformat(),
+        ),
+    )
+    return {
+        "ok": True,
+        "jobid": result.jobid,
+        "system": ctx["system"],
+        "stdout_path": result.job_file_out,
+        "stderr_path": result.job_file_err,
+        "provenance": f"Call get_provenance with job_id={result.jobid}.",
+        "next_step": f"Call get_job_status with job_id={result.jobid} to watch it.",
+    }
+
+
+@server.tool()
+async def submit_job(prepared_id: str, actor: str = "mcp") -> dict[str, Any]:
+    """Submit a job that a human has already approved, using its `prepared_id`.
+
+    This is the last step. The required order is: list_templates -> prepare_job
+    (choose an approved template and pass its typed parameters; you get a
+    `prepared_id`) -> the human runs `fcagent approve <prepared_id>` -> you call
+    submit_job(prepared_id). Do not send scripts or parameters here: only the
+    exact, approved job is sent, and only once.
+
+    If the job is not approved yet, expired, rejected, already used or changed,
+    the result explains why in `reason` and what to do in `next_step`: follow it
+    (usually: ask the user to approve, or prepare again). Do not retry in a loop.
+
+    On success you get the job id and where the output will appear, and a
+    reproducibility card is stored (see get_provenance).
+    """
+    try:
+        settings, service = _core()
+        return await _submit_prepared(service, settings, prepared_id, actor)
+    except GuardrailDenied as exc:
+        return _denied(exc)
     except Exception as exc:  # noqa: BLE001 - surfaced to the agent as data
+        return _fail(exc)
+
+
+@server.tool()
+async def get_provenance(job_id: str) -> dict[str, Any]:
+    """Return the reproducibility card of a job that was submitted through here.
+
+    Use this when the user asks how a job was run, wants to reproduce it, or
+    needs evidence for a result: template and parameters, hashes of the rendered
+    script and files, system, partition, FirecREST/pyfirecrest/workbench
+    versions, times, state, exit code, output hashes, trace identifiers and who
+    approved it. Missing trace identifiers are `null`, never invented.
+    """
+    try:
+        settings, _ = _core()
+        return {"ok": True, "provenance": ProvenanceStore(settings.state_dir).read(job_id)}
+    except GuardrailDenied as exc:
+        return _denied(exc)
+    except Exception as exc:  # noqa: BLE001
+        return _fail(exc)
+
+
+@server.tool()
+async def rerun_from_provenance(job_id: str, actor: str = "mcp") -> dict[str, Any]:
+    """Prepare a new run of a past job from its reproducibility card.
+
+    The template and parameters of the card are re-rendered and the SHA-256 of
+    the rendered script and of the template must match the card; if they differ
+    the rerun is refused. A match returns a new `prepared_id` that still needs
+    `fcagent approve <prepared_id>` from a human before submit_job.
+    """
+    try:
+        _, service = _core()
+        store = ProvenanceStore(CoreSettings.from_env().state_dir)
+        card = store.read(job_id)
+        hashes = card.get("hashes", {})
+        spec, script = service.render(
+            template=card["template"],
+            parameters=card["parameters"],
+            working_directory=card["working_directory"],
+        )
+        import hashlib
+
+        if (
+            hashlib.sha256(script.encode()).hexdigest() != hashes.get("script_sha256")
+            or hashlib.sha256(spec.path.read_bytes()).hexdigest()
+            != hashes.get("template_sha256")
+        ):
+            raise GuardrailDenied("provenance_hash_mismatch")
+        prepared = service.prepare(
+            actor=actor,
+            system=card["system"],
+            template=card["template"],
+            parameters=card["parameters"],
+            working_directory=card["working_directory"],
+            account=card.get("account"),
+        )
+        return {"ok": True, "rerun_of": job_id, **prepared}
+    except GuardrailDenied as exc:
+        return _denied(exc)
+    except Exception as exc:  # noqa: BLE001
         return _fail(exc)
 
 
@@ -392,7 +525,11 @@ async def get_job_log(job_id: str) -> dict[str, Any]:
 
 def _announce(mode: str) -> None:
     tools = [
+        "list_templates",
+        "prepare_job",
         "submit_job",
+        "get_provenance",
+        "rerun_from_provenance",
         "cancel_job",
         "get_job_status",
         "list_files",

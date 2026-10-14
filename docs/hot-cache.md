@@ -391,3 +391,12 @@ Worth reporting upstream as a 400-on-missing-parameter bug rather than a 500. Re
 MCP wrapper: `download_file(path)` must send `sourcePath`, and must not be built by analogy
 with the other `/utilities/*` tools. `/utilities/view` (text) and `/utilities/head` are the
 working alternatives when only the contents matter.
+
+## Approval and provenance tools (CRIGAMO-139)
+
+The v1 demo transport is unchanged for read-only tools. Job submission is v2-only
+and now follows the approval flow documented in `docs/hot-cache-v2.md` and
+`docs/reproducibility.md`: `list_templates` → `prepare_job` → human
+`fcagent approve <prepared_id>` → `submit_job(prepared_id)`. `get_provenance(job_id)`
+returns the reproducibility card. **Breaking change:** `submit_job` no longer
+accepts `script` or `approved_by`.

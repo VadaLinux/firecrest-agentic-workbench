@@ -151,6 +151,17 @@ class FirecRESTClientV2:
     ) -> None:
         self.config = config
         self._client = (factory or self._create_client)(config)
+        #: Trace identifiers of the latest call (``X-Correlation-ID`` sent by
+        #: pyfirecrest; ``X-Request-ID`` only if a real response exposed one).
+        self.last_trace: dict[str, Any] | None = None
+
+    @property
+    def server_version(self) -> str | None:
+        """FirecREST server version, if the client exposes it (never guessed)."""
+        try:
+            return getattr(self._client, "server_version", None)
+        except Exception:  # noqa: BLE001
+            return None
 
     @staticmethod
     def _create_client(config: FirecRESTConfigV2) -> Any:
@@ -171,10 +182,21 @@ class FirecRESTClientV2:
             await asyncio.to_thread(close)
 
     async def _call(self, method: str, *args: Any, **kwargs: Any) -> Any:
+        def run() -> Any:
+            try:
+                from firecrest import correlation_id
+            except ImportError:  # factory-injected tests without pyfirecrest
+                return getattr(self._client, method)(*args, **kwargs)
+            with correlation_id() as cid:
+                self.last_trace = {
+                    "x_correlation_id": cid,
+                    "x_request_id": None,
+                    "note": "request id not exposed by the client library",
+                }
+                return getattr(self._client, method)(*args, **kwargs)
+
         try:
-            return await asyncio.to_thread(
-                getattr(self._client, method), *args, **kwargs
-            )
+            return await asyncio.to_thread(run)
         except Exception as exc:
             status = _http_status(exc)
             hint = _STATUS_HINTS.get(status or 0)

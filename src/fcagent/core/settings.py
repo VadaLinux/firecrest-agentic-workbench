@@ -35,6 +35,9 @@ class CoreSettings:
     template_directory: Path
     limits: Limits
     audit_path: Path
+    state_dir: Path
+    approval_public_key: Path | None
+    approval_ttl_seconds: int
 
     @classmethod
     def from_env(cls) -> "CoreSettings":
@@ -51,4 +54,11 @@ class CoreSettings:
             audit_path=Path(
                 os.environ.get("FCAGENT_AUDIT_PATH", root / "logs/audit.jsonl")
             ),
+            state_dir=Path(os.environ.get("FCAGENT_STATE_DIR", root / "runs")),
+            approval_public_key=(
+                Path(os.environ["FCAGENT_APPROVAL_PUBLIC_KEY"])
+                if os.environ.get("FCAGENT_APPROVAL_PUBLIC_KEY")
+                else None
+            ),
+            approval_ttl_seconds=int(os.environ.get("FCAGENT_APPROVAL_TTL", "900")),
         )

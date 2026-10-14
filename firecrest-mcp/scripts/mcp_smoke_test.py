@@ -24,6 +24,10 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 HERE = Path(__file__).resolve().parent.parent
 EXPECTED_TOOLS = {
+    "list_templates",
+    "prepare_job",
+    "get_provenance",
+    "rerun_from_provenance",
     "submit_job",
     "cancel_job",
     "get_job_status",
@@ -88,13 +92,12 @@ async def main() -> int:
                     f"tool surface mismatch: expected {sorted(EXPECTED_TOOLS)}, got {sorted(names)}"
                 )
 
-            submit = tool_result(
+            prepared = tool_result(
                 await session.call_tool(
-                    "submit_job",
+                    "prepare_job",
                     {
                         "template": "hello",
                         "parameters": V2_PARAMETERS,
-                        "approved_by": "local-smoke",
                         "system": os.environ.get(
                             "FIRECREST_V2_SYSTEM", "cluster-slurm-api"
                         ),
@@ -104,6 +107,23 @@ async def main() -> int:
                     },
                 )
             )
+            show("prepare_job", prepared)
+            if not prepared.get("ok"):
+                print("\nFAILED: prepare_job", prepared.get("reason"))
+                return 1
+            pid = prepared["prepared_id"]
+            print(
+                f"\nA HUMAN must now run:  fcagent approve {pid}\n"
+                "(waiting up to 120 s; the smoke test never approves by itself)"
+            )
+            submit: dict = {}
+            for _ in range(60):
+                submit = tool_result(
+                    await session.call_tool("submit_job", {"prepared_id": pid})
+                )
+                if submit.get("reason") != "approval_pending":
+                    break
+                await asyncio.sleep(2)
             show("submit_job", submit)
             if not submit.get("ok"):
                 failures.append(f"submit_job failed: {submit.get('error')}")
