@@ -1,3 +1,3 @@
-agent: Submitted via FirecREST. job_id=<JOB_ID>
-agent: state RUNNING ... COMPLETED
-agent: output retrieved to logs/ (<N> bytes)
+submit_job(prepared_id) -> ok=<PLACEHOLDER>, jobid=<PLACEHOLDER: jobid>
+get_job_status -> <PLACEHOLDER: state sequence up to COMPLETED>
+download_file(path, job_id) -> <PLACEHOLDER: path and sha256>

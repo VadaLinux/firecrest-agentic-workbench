@@ -2,7 +2,9 @@
 # Pre-flight check and reset for the 5-minute demo (runs on the VPS).
 #
 #   demo/run-demo.sh check   verify services, public endpoint and model (read-only)
-#   demo/run-demo.sh reset   empty the demo output directories (see ALLOWED_DIRS)
+#   demo/run-demo.sh reset   empty the demo output directories (see ALLOWED_DIRS) and,
+#                            if DEMO_STATE_DIR is set, the gate sub-directories
+#                            prepared/ consumed/ jobs/ inside it (never the audit log)
 #
 # This script never talks to FirecREST. It only calls scripts/workbench-up.sh --status
 # and scripts/omniroute_check.py. Configuration comes from the gitignored demo/.env.
@@ -55,6 +57,38 @@ cmd_check() {
   return "$fail"
 }
 
+# Gate state of the demo (decision D2: must live OUTSIDE the checkout and the agent
+# workspace). Only these known sub-directories are emptied; the audit log never is.
+GATE_SUBDIRS=("prepared" "consumed" "jobs")
+PROTECTED_STATE_DIR="/var/lib/fcagent"
+
+reset_state_dir() {
+  local sd="${DEMO_STATE_DIR:-}" ws real audit sub
+  [ -n "$sd" ] || { echo "SKIP  DEMO_STATE_DIR not set: gate state untouched"; return 0; }
+  ws="${DEMO_WORKSPACE_DIR:-$(cd "$ROOT/.." && pwd -P)}"
+  audit="${FCAGENT_AUDIT_PATH:-}"
+  case "$sd" in /*) ;; *) bad "state dir must be absolute"; return 1;; esac
+  case "$sd" in *..*) bad "state dir must not contain '..'"; return 1;; esac
+  [ -L "$sd" ] && { bad "state dir is a symlink"; return 1; }
+  [ -d "$sd" ] || { bad "state dir does not exist"; return 1; }
+  real=$(cd "$sd" && pwd -P)
+  [ "$real" = "$sd" ] || { bad "state dir path is not canonical ($real)"; return 1; }
+  [ "$real" = "$PROTECTED_STATE_DIR" ] && { bad "refusing the production state dir"; return 1; }
+  case "$real/" in "$ROOT"/*) bad "state dir is inside the repository"; return 1;; esac
+  case "$real/" in "$ws"/*) bad "state dir is inside the agent workspace"; return 1;; esac
+  case "$ROOT/" in "$real"/*) bad "state dir contains the repository"; return 1;; esac
+  if [ -n "$audit" ]; then
+    case "$audit" in "$real"/*|"$real") bad "state dir contains the audit log"; return 1;; esac
+  fi
+  for sub in "${GATE_SUBDIRS[@]}"; do
+    if [ -L "$real/$sub" ]; then bad "$sub is a symlink"; return 1; fi
+  done
+  for sub in "${GATE_SUBDIRS[@]}"; do
+    if [ -d "$real/$sub" ]; then find "$real/$sub" -mindepth 1 -delete; fi
+  done
+  ok "reset gate state in $real (${GATE_SUBDIRS[*]})"
+}
+
 cmd_reset() {
   local rel dir
   for rel in "${ALLOWED_DIRS[@]}"; do
@@ -73,6 +107,7 @@ cmd_reset() {
     find "$real" -mindepth 1 -delete
     ok "reset $rel"
   done
+  reset_state_dir || fail=1
   return "$fail"
 }
 

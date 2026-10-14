@@ -105,7 +105,8 @@ def test_replay_prints_transcripts():
         env={**os.environ, "DEMO_REPLAY_DELAY": "0"},
     )
     assert r.returncode == 0
-    assert "BLOCKED by guardrail" in r.stdout
+    assert "max_nodes_exceeded" in r.stdout
+    assert all(line.startswith("[SAMPLE]") for line in r.stdout.splitlines())
 
 
 def test_scripts_do_not_call_firecrest_directly():
@@ -124,3 +125,111 @@ def test_build_handout_reports_missing_tools(tmp_path):
     )
     assert r.returncode == 3
     assert "missing tools" in r.stderr
+
+
+def _state(tmp_path, name="state"):
+    sd = tmp_path / name
+    for sub in ("prepared", "consumed", "jobs"):
+        (sd / sub).mkdir(parents=True)
+        (sd / sub / "x.json").write_text("{}")
+    (sd / "keep.txt").write_text("k")
+    return sd
+
+
+def _env(root, sd, **extra):
+    ws = root.parent / "ws"
+    ws.mkdir(exist_ok=True)
+    return {"DEMO_STATE_DIR": str(sd), "DEMO_WORKSPACE_DIR": str(ws), **extra}
+
+
+def test_reset_state_dir_clears_only_gate_subdirs(tmp_path):
+    root = _sandbox(tmp_path)
+    sd = _state(tmp_path)
+    audit = tmp_path / "audit.jsonl"
+    audit.write_text("a")
+    r = _run(root, "reset", env=_env(root, sd, FCAGENT_AUDIT_PATH=str(audit)))
+    assert r.returncode == 0, r.stdout + r.stderr
+    for sub in ("prepared", "consumed", "jobs"):
+        assert list((sd / sub).iterdir()) == []
+    assert (sd / "keep.txt").exists() and audit.exists()
+
+
+def _refused(tmp_path, sd, root=None, **extra):
+    root = root or _sandbox(tmp_path)
+    r = _run(root, "reset", env=_env(root, sd, **extra))
+    assert r.returncode == 1, r.stdout + r.stderr
+    return r
+
+
+def test_reset_state_dir_refuses_relative(tmp_path):
+    _state(tmp_path)
+    _refused(tmp_path, "state")
+
+
+def test_reset_state_dir_refuses_symlink(tmp_path):
+    real = _state(tmp_path, "real")
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    _refused(tmp_path, link)
+    assert (real / "prepared" / "x.json").exists()
+
+
+def test_reset_state_dir_refuses_inside_repo(tmp_path):
+    root = _sandbox(tmp_path)
+    sd = root / "runs"
+    for sub in ("prepared", "consumed", "jobs"):
+        (sd / sub).mkdir(parents=True)
+        (sd / sub / "x.json").write_text("{}")
+    _refused(tmp_path, sd, root=root)
+    assert (sd / "prepared" / "x.json").exists()
+
+
+def test_reset_state_dir_refuses_inside_workspace(tmp_path):
+    root = _sandbox(tmp_path)
+    sd = tmp_path / "ws" / "state"
+    for sub in ("prepared", "consumed", "jobs"):
+        (sd / sub).mkdir(parents=True)
+        (sd / sub / "x.json").write_text("{}")
+    _refused(tmp_path, sd, root=root)
+    assert (sd / "prepared" / "x.json").exists()
+
+
+def test_reset_state_dir_refuses_dir_containing_audit(tmp_path):
+    sd = _state(tmp_path)
+    audit = sd / "audit.jsonl"
+    audit.write_text("a")
+    _refused(tmp_path, sd, FCAGENT_AUDIT_PATH=str(audit))
+    assert (sd / "prepared" / "x.json").exists() and audit.exists()
+
+
+def test_reset_state_dir_refuses_symlinked_subdir(tmp_path):
+    sd = _state(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "precious").write_text("x")
+    import shutil as _sh
+
+    _sh.rmtree(sd / "jobs")
+    (sd / "jobs").symlink_to(outside)
+    _refused(tmp_path, sd)
+    assert (outside / "precious").exists()
+
+
+def test_reset_state_dir_refuses_production_dir():
+    text = (REPO / "demo/run-demo.sh").read_text()
+    assert 'PROTECTED_STATE_DIR="/var/lib/fcagent"' in text
+    assert "refusing the production state dir" in text
+
+
+def test_matrix_template_within_guardrails():
+    import yaml
+
+    spec = yaml.safe_load((REPO / "templates/matrix.yaml").read_text())
+    limits = yaml.safe_load((REPO / "config/limits.yaml").read_text())
+    assert spec["parameters"]["time_minutes"]["max"] <= limits["max_time_minutes"]
+    assert set(spec["parameters"]["partition"]["values"]) <= set(
+        limits["allowed_partitions"]
+    )
+    script = (REPO / "templates/matrix.sh").read_text()
+    for name in spec["parameters"]:
+        assert "{{" + name + "}}" in script

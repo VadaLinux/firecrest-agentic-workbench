@@ -12,7 +12,7 @@ prove later that a result can be reproduced.
 ## What we built
 
 An agentic layer on top of FirecREST. The researcher asks in plain language
-("run the matrix benchmark on 4 nodes and tell me when it's done"); the agent does the rest.
+("run the matrix benchmark on 1 node and tell me when it's done"); the agent does the rest.
 
 ## Architecture
 
@@ -23,10 +23,23 @@ component talks to the API.
 ## What is new
 
 - **Guardrailed templates:** jobs are launched from vetted templates with enforced limits.
-- **Human approval** before anything is submitted.
+- **Human approval** in a separate terminal (`fcagent approve`) before anything is submitted.
 - **Guardrail refusals:** dangerous or out-of-policy requests are blocked, and nothing is submitted.
 - **Reproducibility card:** inputs, template, parameters and output hashes are recorded;
   a job can be relaunched from the card and its outputs verified by hash.
+
+## Limits of the approval gate
+
+> This gate is a **process control**, not a cryptographic guarantee against the agent.
+> On the current host the agents and the MCP service run as `master`, which has
+> passwordless `sudo`. An agent with a shell can read the private key or run
+> `fcagent approve` itself. The control prevents an agent from submitting through the
+> MCP tools without a recorded, signed human approval step; it does **not** stop a
+> compromised or malicious agent with shell access. Do not present it otherwise.
+>
+> **Future work (D1):** run the agents and MCP server as an unprivileged account
+> without sudo, and keep the private key under a separate approver identity that the
+> agent runtime cannot reach. Then the signature becomes a technical barrier.
 
 ## Try it
 

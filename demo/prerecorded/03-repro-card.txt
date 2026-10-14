@@ -1,2 +1,2 @@
-agent: Reproducibility card written: inputs, template, parameters, sha256 of outputs.
-agent: Relaunch from the card: hashes of the new outputs match the card (<HASH_CHECK: ok>)
+get_provenance(job_id) -> <PLACEHOLDER: card fields and hashes>
+rerun_from_provenance(job_id) -> new prepared_id=<PLACEHOLDER>; human approves again; output hash vs card: <PLACEHOLDER: match or mismatch>

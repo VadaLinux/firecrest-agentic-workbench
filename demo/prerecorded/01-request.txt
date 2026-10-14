@@ -1,5 +1,4 @@
-[PRE-RECORDED SAMPLE - illustrative transcript, not live output]
-> run the matrix benchmark on 4 nodes and tell me when it's done
-agent: I will use the guardrailed template "matrix-benchmark" (4 nodes, time limit within policy).
-agent: Human approval required before submission. Approve? [y/N]
-> y
+> run the matrix benchmark on 1 node and tell me when it's done
+list_templates -> <PLACEHOLDER: real output of list_templates>
+prepare_job(template=matrix, nodes=1) -> prepared_id=<PLACEHOLDER: prepared_id>, summary=<PLACEHOLDER: summary>
+Terminal B (human): fcagent approve <PLACEHOLDER: prepared_id>   (human types yes)

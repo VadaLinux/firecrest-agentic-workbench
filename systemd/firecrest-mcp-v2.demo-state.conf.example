@@ -1,0 +1,7 @@
+# Drop-in TEMPLATE (CRIGAMO-140): a separate gate state dir for rehearsals, so that
+# `demo/run-demo.sh reset` never touches production state. Installed by the operator,
+# not by this repository. Outside the checkout and the agent workspace (D2), owned by
+# the same identity as /var/lib/fcagent. The audit log path is NOT inside this dir.
+[Service]
+Environment=FCAGENT_STATE_DIR=/var/lib/fcagent-demo
+ReadWritePaths=/var/lib/fcagent-demo
