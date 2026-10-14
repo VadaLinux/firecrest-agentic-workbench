@@ -1,0 +1,3 @@
+agent: Submitted via FirecREST. job_id=<JOB_ID>
+agent: state RUNNING ... COMPLETED
+agent: output retrieved to logs/ (<N> bytes)

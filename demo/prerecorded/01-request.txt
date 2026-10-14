@@ -1,0 +1,5 @@
+[PRE-RECORDED SAMPLE - illustrative transcript, not live output]
+> run the matrix benchmark on 4 nodes and tell me when it's done
+agent: I will use the guardrailed template "matrix-benchmark" (4 nodes, time limit within policy).
+agent: Human approval required before submission. Approve? [y/N]
+> y

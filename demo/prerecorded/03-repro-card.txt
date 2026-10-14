@@ -1,0 +1,2 @@
+agent: Reproducibility card written: inputs, template, parameters, sha256 of outputs.
+agent: Relaunch from the card: hashes of the new outputs match the card (<HASH_CHECK: ok>)

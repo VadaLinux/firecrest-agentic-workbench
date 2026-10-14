@@ -24,3 +24,8 @@ firecrest/
 node_modules/
 scripts/.reports/
 .claude/
+
+# Demo rehearsal outputs and generated handout artefacts
+logs/
+demo/.output/
+docs/assets/qr-repo.png
