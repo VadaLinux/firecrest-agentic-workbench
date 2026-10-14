@@ -64,7 +64,7 @@ The FirecREST v2 MCP server runs as a system unit on the VPS, separate from the
 workstation's user unit `systemd/firecrest-mcp.service`, which is not changed. It binds
 `127.0.0.1:8765` only; the server has no authentication of its own, so it must never be
 bound to `0.0.0.0`. Public access goes through a Cloudflare tunnel protected by Cloudflare
-Access (see below).
+Access (see [`DEPLOYMENT-VPS.md`](./DEPLOYMENT-VPS.md)).
 
 The unit sets `User=master`, `FIRECREST_API_VERSION=v2`, and absolute log paths under
 `firecrest-mcp/logs/` (`FIRECREST_V2_LOG_DIR`, `FCAGENT_AUDIT_PATH`). The only writable

@@ -1,0 +1,340 @@
+# FirecREST Agentic Workbench — self-installation guide for AI agents
+
+> Machine-oriented, self-contained instructions that let a coding agent (Claude Code,
+> Codex, Hermes, …) install the FirecREST v2 demo stack and the FirecREST MCP server of
+> this repository on a Linux host, optionally publish the MCP endpoint behind Cloudflare
+> Access, and verify every step. Human-oriented reference: docs/DEPLOYMENT-VPS.md.
+> Workstation variant (full workbench with MetaMCP, DocMind, Multica): docs/local-env.md,
+> docs/ENVIRONMENT.md.
+
+Repository: https://github.com/VadaLinux/firecrest-agentic-workbench
+Upstream FirecREST v2: https://github.com/eth-cscs/firecrest-v2 (pinned tag 2.6.1)
+Python client: pyfirecrest 3.10.0. MCP SDK: mcp >=2,<3.
+
+---------------------------------------------------------------------------------------
+
+## 0. Rules for the agent (read first, follow throughout)
+
+1. Execute the phases in order. Every phase ends with a VERIFY block. If a verification
+   fails, STOP, report the exact output, and do not continue.
+2. HUMAN GATES. Before any command marked [SUDO] or [PUBLIC], show the human exactly what
+   will run and wait for explicit approval. Approval of one gate does not cover the next.
+3. Never print, log or commit secrets (client secrets, tokens, .env contents). When a secret
+   must be written to a file, write it without echoing it, and report only "written".
+4. Never bind the MCP server to 0.0.0.0. It has no authentication of its own.
+5. Never publish the MCP endpoint without Cloudflare Access in front of it (phase 7 order:
+   Access application first, tunnel route second, external check third).
+6. Be idempotent: before creating anything, check whether it already exists and report it.
+7. Do not modify the upstream firecrest-v2 clone. Deviations live in this repo's
+   docs/patches/ and are applied by scripts/workbench-up.sh.
+8. Report, at the end, the commit deployed, the state of each unit, and the result of every
+   VERIFY block.
+
+## 1. Inputs to collect from the human before starting
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `OP_USER` | Linux user that owns and runs everything | current user |
+| `REPO` | path of this repository | `$HOME/Sviluppo/firecrest-agentic-workbench` |
+| `V2` | path of the upstream firecrest-v2 clone | `$HOME/Sviluppo/firecrest-demo/firecrest-v2` |
+| `PUBLISH` | publish the MCP endpoint on the internet? `yes`/`no` | `no` |
+| `PUBLIC_HOST` | public hostname, only if `PUBLISH=yes` | none; must be a bare DNS name, letters/digits/hyphens, NO underscore |
+| `ALLOWED_EMAILS` | e-mail addresses allowed by Cloudflare Access | none |
+| `CF_MODE` | who configures Cloudflare: `human` (dashboard) or `api` (scoped token) | `human` |
+
+Validate `PUBLIC_HOST` with: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`.
+A hostname containing `_` is invalid for DNS and public TLS certificates: ask for another.
+
+## 2. Phase 1 — Preflight (read-only)
+
+```bash
+uname -a; cat /etc/os-release | head -3
+command -v git docker gh curl python3 || true
+docker compose version
+id -nG "$USER" | tr ' ' '\n' | grep -x docker || echo "NOT IN docker GROUP"
+command -v uv || ls ~/.local/bin/uv
+systemctl --version | head -1
+df -h "$HOME" | tail -1; free -g | sed -n 2p
+for p in 8000 5678 8765 18080 9090 6820 2222 5665 5666; do ss -Htln "sport = :$p" | grep -q . && echo "PORT $p BUSY"; done
+sudo -n true 2>/dev/null && echo "sudo: non-interactive OK" || echo "sudo: needs password/approval"
+command -v ufw && sudo -n ufw status 2>/dev/null | head -5
+```
+
+VERIFY: Docker and Compose present; user in `docker` group; `uv` present (if not, install
+with `curl -LsSf https://astral.sh/uv/install.sh | sh` after human approval); at least
+10 GB free disk and 4 GB RAM; none of the ports busy. If a port is busy, STOP and report
+which process owns it (`sudo ss -Htlnp "sport = :<port>"`).
+
+## 3. Phase 2 — Clone
+
+```bash
+mkdir -p "$(dirname "$REPO")" "$(dirname "$V2")"
+[ -d "$REPO/.git" ] || git clone https://github.com/VadaLinux/firecrest-agentic-workbench.git "$REPO"
+git -C "$REPO" pull --ff-only
+[ -d "$V2/.git" ] || git clone https://github.com/eth-cscs/firecrest-v2.git "$V2"
+git -C "$V2" fetch --tags -q && git -C "$V2" checkout -q 2.6.1
+```
+
+VERIFY:
+```bash
+git -C "$REPO" rev-parse --short HEAD        # record it
+git -C "$V2" describe --tags                 # 2.6.1
+git -C "$REPO" status --porcelain | wc -l    # 0
+```
+
+## 4. Phase 3 — Configure the MCP server
+
+The demo uses the public test client of the upstream compose stack. Its secret is published
+in the upstream user guide; read it from there without printing it.
+
+```bash
+cd "$REPO/firecrest-mcp"
+if [ -e .env ]; then echo ".env exists: not overwritten"; else
+  SEC=$(grep -o 'client_secret=[A-Za-z0-9_-]*' "$V2/docs/user_guide/README.md" | head -1 | cut -d= -f2)
+  [ -n "$SEC" ] || { echo "demo secret not found in upstream guide: ask the human"; exit 1; }
+  umask 077
+  cat > .env <<EOF
+FIRECREST_API_VERSION=v2
+FIRECREST_V2_BASE_URL=http://localhost:8000
+FIRECREST_V2_TOKEN_URL=http://localhost:18080/auth/realms/kcrealm/protocol/openid-connect/token
+FIRECREST_V2_CLIENT_ID=firecrest-test-client
+FIRECREST_V2_CLIENT_SECRET=$SEC
+FIRECREST_V2_SYSTEM=cluster-slurm-api
+FIRECREST_V2_VERIFY_SSL=true
+EOF
+  unset SEC
+fi
+if [ "$PUBLISH" = yes ]; then
+  grep -q '^FIRECREST_MCP_PUBLIC_HOST=' .env || echo "FIRECREST_MCP_PUBLIC_HOST=$PUBLIC_HOST" >> .env
+fi
+chmod 600 .env
+export PATH="$HOME/.local/bin:$PATH"
+[ -x .venv/bin/python ] || uv venv -q .venv
+uv pip install -q --python .venv/bin/python -r requirements.txt
+mkdir -p logs downloads
+```
+
+VERIFY:
+```bash
+stat -c '%a' .env                                          # 600
+git -C "$REPO" check-ignore -q firecrest-mcp/.env && echo ignored
+grep -c '=.' .env                                          # count only, never cat .env
+.venv/bin/python -c 'import mcp, firecrest, httpx; print("deps ok")'
+.venv/bin/python server.py --help | head -1                # usage: server.py ...
+```
+
+## 5. Phase 4 — Install the systemd units [SUDO]
+
+The unit files in `systemd/` are written for user `master` and paths under
+`/home/master/Sviluppo`. If `OP_USER`, `REPO` or `V2` differ, render adapted copies first:
+
+```bash
+R=$(mktemp -d)
+for u in firecrest-demo-v2 firecrest-mcp-v2; do
+  sed -e "s#/home/master/Sviluppo/firecrest-agentic-workbench#$REPO#g" \
+      -e "s#/home/master/Sviluppo/firecrest-demo/firecrest-v2#$V2#g" \
+      -e "s#/home/master#$HOME#g" \
+      -e "s#^User=master#User=$OP_USER#" -e "s#^Group=master#Group=$(id -gn "$OP_USER")#" \
+      "$REPO/systemd/$u.service" > "$R/$u.service"
+done
+grep -nE '^(User|Group|WorkingDirectory|ExecStart|ReadWritePaths|Environment)=' "$R"/*.service
+```
+
+Show the rendered lines to the human, then, after approval:
+
+```bash
+for u in firecrest-demo-v2 firecrest-mcp-v2; do
+  [ -e /etc/systemd/system/$u.service ] && echo "$u already installed: compare before replacing"
+  sudo install -o root -g root -m 644 "$R/$u.service" /etc/systemd/system/$u.service
+done
+sudo systemctl daemon-reload
+sudo systemd-analyze verify /etc/systemd/system/firecrest-demo-v2.service /etc/systemd/system/firecrest-mcp-v2.service
+sudo systemctl enable firecrest-demo-v2.service firecrest-mcp-v2.service
+```
+
+VERIFY: `systemd-analyze verify` prints no error for these two units;
+`systemctl is-enabled firecrest-demo-v2 firecrest-mcp-v2` prints `enabled` twice.
+Note: enabled units start automatically at the next boot.
+
+## 6. Phase 5 — Start and smoke-test FirecREST v2 [SUDO]
+
+```bash
+sudo systemctl start --no-block firecrest-demo-v2
+until s=$(systemctl is-active firecrest-demo-v2); [ "$s" != activating ]; do sleep 10; done; echo "$s"
+```
+
+The first start pulls and builds images and can take 5–15 minutes.
+
+VERIFY:
+```bash
+systemctl is-active firecrest-demo-v2                                     # active
+docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'                   # firecrest, slurm (healthy), keycloak (healthy); ALL ports start with 127.0.0.1: (incl. 5678 = debugpy, must never be public)
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/status/systems        # 401
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/auth/realms/kcrealm  # 200
+cd "$REPO" && uv run --quiet --with pyfirecrest==3.10.0 python scripts/smoke_local.py
+# last line: OK — token, systems, submit, poll, output all verified.
+```
+
+The warning "firecrest-mcp is NOT listening on :8765" in the unit log is expected until
+phase 6.
+
+## 7. Phase 6 — Start and test the MCP server [SUDO]
+
+```bash
+sudo systemctl start firecrest-mcp-v2
+sleep 5; systemctl is-active firecrest-mcp-v2                # active
+ss -Htln 'sport = :8765'                                     # 127.0.0.1:8765 ONLY
+```
+
+If `ss` shows `0.0.0.0` or `*`, STOP immediately and run `sudo systemctl stop firecrest-mcp-v2`.
+
+Host allowlist check:
+```bash
+INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}'
+for h in 127.0.0.1:8765 "$PUBLIC_HOST" evil.example.com; do
+  [ -z "$h" ] && continue
+  o=; [ "$h" = "$PUBLIC_HOST" ] && o="-H Origin:https://$h"
+  printf '%s -> ' "$h"; curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8765/mcp \
+    -H "Host: $h" $o -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d "$INIT"
+done
+# expected: 127.0.0.1 -> 200, PUBLIC_HOST -> 200, evil.example.com -> 421
+```
+
+End-to-end MCP test. Save as a script OUTSIDE the repository and run it with the server's
+venv (mcp SDK 2.x API: `streamable_http_client` yields two streams; tools expose `input_schema`):
+
+```python
+import asyncio
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+def text(r):
+    return " ".join(getattr(c, "text", str(c)) for c in r.content)
+
+async def main():
+    async with streamable_http_client("http://127.0.0.1:8765/mcp") as (read, write):
+        async with ClientSession(read, write) as s:
+            await s.initialize()
+            print([t.name for t in (await s.list_tools()).tools])
+            r = await s.call_tool("submit_job", {
+                "system": "cluster-slurm-api", "template": "hello",
+                "parameters": {"nodes": 1, "time_minutes": 5, "partition": "part01",
+                               "job_name": "install-check", "message": "install-ok"},
+                "approved_by": "installer-check", "actor": "installer-agent",
+                "working_directory": "/home/fireuser"})
+            print(text(r))
+
+asyncio.run(main())
+```
+
+VERIFY: six tools are listed (`submit_job`, `cancel_job`, `get_job_status`, `list_files`,
+`download_file`, `get_job_log`); `submit_job` returns `"ok": true` with a `jobid`;
+`get_job_status` on that id reaches `COMPLETED`; `get_job_log` shows
+`hello-from-fcagent install-ok`; `download_file` of `/home/fireuser/slurm-<jobid>.out` saves
+into `firecrest-mcp/downloads/`; `firecrest-mcp/logs/audit.jsonl` has an `"outcome": "submitted"` line.
+
+Guardrails, expected behaviour (do not "fix" them):
+- a free-form `script` without `template` is refused (`FirecRESTError`);
+- `approved_by` must match `^[A-Za-z0-9_.-]+$`, otherwise `GuardrailDenied` / `approved_by_required`;
+- v2 needs an absolute `working_directory`;
+- limits come from `config/limits.yaml` (max 2 nodes, 30 minutes, partitions part01/part02).
+
+If `PUBLISH=no`, the installation is complete here. Agents on the same host use
+`http://127.0.0.1:8765/mcp`.
+
+## 8. Phase 7 — Publish behind Cloudflare Access [PUBLIC] (only if PUBLISH=yes)
+
+Strict order: 7.1 → 7.2 → 7.3 → 7.4. Never create the tunnel route before the Access
+application exists: in that window the MCP server is open to the internet.
+
+### 7.1 Login method
+Zero Trust → Settings → Authentication → Login methods: One-time PIN enabled.
+(API: `GET /accounts/{account}/access/identity_providers` must list type `onetimepin`.)
+
+### 7.2 Access application (Self-hosted)
+- name `FirecREST MCP`; session 24h; domain `PUBLIC_HOST`, path empty;
+- one policy: decision `allow`, include = one `email` rule per address in `ALLOWED_EMAILS`;
+- never `bypass`, never `everyone`, never IP-based rules.
+
+API variant (`CF_MODE=api`, token with Access: Apps and Policies Edit, Cloudflare Tunnel Edit,
+DNS Edit on the zone; token stored in a 0600 file and never printed):
+```
+POST /client/v4/accounts/{account}/access/apps
+{"name":"FirecREST MCP","type":"self_hosted","domain":"<PUBLIC_HOST>","session_duration":"24h",
+ "app_launcher_visible":false,
+ "policies":[{"name":"Operators","decision":"allow","precedence":1,
+              "include":[{"email":{"email":"<addr1>"}},{"email":{"email":"<addr2>"}}]}]}
+```
+Record the returned `aud`. The account id is in `GET /zones?name=<zone>` → `result[0].account.id`.
+
+### 7.3 Tunnel
+The human installs `cloudflared` as a system service with a token-based tunnel (dashboard:
+Networks → Tunnels → Create → Cloudflared → run the shown `cloudflared service install <token>`).
+Then one public hostname route:
+- hostname `PUBLIC_HOST`, path empty, service `http://127.0.0.1:8765`;
+- HTTP Host header: empty;
+- Access → enforce JWT validation: on, application `FirecREST MCP`.
+
+Resulting remotely-managed config (API: `PUT /accounts/{account}/cfd_tunnel/{tunnel}/configurations`;
+back up the current config with GET first):
+```json
+{"config":{"ingress":[
+  {"hostname":"<PUBLIC_HOST>","service":"http://127.0.0.1:8765",
+   "originRequest":{"access":{"required":true,"teamName":"<team>","audTag":["<aud>"]}}},
+  {"service":"http_status:404"}]}}
+```
+`<team>` is the subdomain of `<team>.cloudflareaccess.com`, visible in the `Location` header of
+any redirect produced by step 7.4. A proxied DNS CNAME `PUBLIC_HOST → <tunnel-id>.cfargotunnel.com`
+is created by the dashboard route.
+
+### 7.4 External verification (from a machine that is NOT the host)
+```bash
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "https://$PUBLIC_HOST/mcp"
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "https://$PUBLIC_HOST/mcp" -d '{}'
+```
+VERIFY: both return `302` to `https://<team>.cloudflareaccess.com/cdn-cgi/access/login/...`.
+Then on the host:
+```bash
+journalctl -u firecrest-mcp-v2 --since '-5 min' -o cat | grep 'HTTP/1.1' | grep -v '127.0.0.1:'
+```
+must print NOTHING. If any line appears, anonymous traffic reaches the server: treat it as an
+incident, run `sudo systemctl stop cloudflared`, and fix the Access application before retrying.
+Note: right after creating the Access application, allow up to a minute for propagation and repeat.
+
+Human check: open `https://PUBLIC_HOST/mcp` in a browser, log in with an allowed e-mail and the
+PIN. Expected body: `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Bad Request: Missing session ID"}}`.
+
+## 9. Phase 8 — Connect an MCP client
+
+Claude Code (on the human's machine):
+```bash
+claude mcp add --transport http --scope user firecrest-v2 "https://$PUBLIC_HOST/mcp"
+# in Claude Code: /mcp → firecrest-v2 → Authenticate → Access login in the browser
+```
+Headless clients cannot do the PIN login: create an Access service token and a second policy with
+decision `non_identity` (Service Auth) on the same application; the client sends
+`CF-Access-Client-Id` and `CF-Access-Client-Secret`.
+
+## 10. Final report template
+
+```
+Deployed commit: <sha>   Upstream firecrest-v2: 2.6.1
+Units: firecrest-demo-v2=<state> firecrest-mcp-v2=<state> cloudflared=<state|n/a>
+Ports: all loopback = <yes/no>
+Smoke test: <OK/FAIL>   MCP e2e: jobid=<id> state=<state>
+Allowlist: 127.0.0.1=<code> public=<code> foreign=<code>
+Access (external): GET=<code> POST=<code> anonymous-at-origin=<0/n>
+Human gates approved: <list>
+```
+
+## 11. Operations and removal (short)
+
+- Status: `systemctl is-active firecrest-demo-v2 firecrest-mcp-v2 cloudflared`
+- Logs: `journalctl -u firecrest-mcp-v2 -f`; audit: `firecrest-mcp/logs/audit.jsonl`
+- After code or .env changes: `git pull --ff-only`, reinstall requirements, `sudo systemctl restart firecrest-mcp-v2`
+- Stop the stack: `sudo systemctl stop firecrest-mcp-v2; (cd "$V2" && docker compose down)` — never `-v`
+- Remove: `sudo systemctl disable --now firecrest-mcp-v2 firecrest-demo-v2`, `docker compose down` in `$V2`,
+  delete both files from `/etc/systemd/system/`, `sudo systemctl daemon-reload`; in Cloudflare delete the
+  tunnel route first, then the Access application.
+
+Full details, troubleshooting table and change history: docs/DEPLOYMENT-VPS.md.

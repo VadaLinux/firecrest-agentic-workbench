@@ -108,6 +108,7 @@ see [`docs/ENVIRONMENT.md`](./docs/ENVIRONMENT.md).
 ```
 .
 ├── README.md              you are here
+├── llms-full.txt          self-installation guide for AI agents (VPS deployment)
 ├── ARCHITECTURE.md         detailed architecture and data flow
 ├── AGENTS.md               conventions Hermes/Multica read automatically
 ├── src/fcagent/            Python orchestration scaffold
@@ -117,6 +118,7 @@ see [`docs/ENVIRONMENT.md`](./docs/ENVIRONMENT.md).
 │   ├── INFERENCE.md        swapping local Ollama for CSCS's own inference API
 │   ├── hot-cache.md        verified FirecREST v1.16.1 calls (the demo stack below)
 │   ├── hot-cache-v2.md     verified FirecREST v2 calls (production Alps' version)
+│   ├── DEPLOYMENT-VPS.md   remote deployment: FirecREST v2 + MCP server behind Cloudflare Access
 │   └── reports/            dated write-ups of what was built and verified, per prompt
 ├── prompts/                the exact task prompts given to Hermes to build each piece
 └── CSCS-PROPOSAL.md        the one-pager version proposed to CSCS (local inference on Apertus)
@@ -145,6 +147,19 @@ cd firecrest-mcp && pip install -r requirements.txt && python server.py
 ```
 
 Full step-by-step: [`prompts/00-overview.md`](./prompts/00-overview.md).
+
+## Remote demo deployment
+
+The FirecREST v2 stack and the MCP server also run on a VPS, with the MCP endpoint
+published through a Cloudflare Tunnel and protected by Cloudflare Access (one-time PIN
+login, JWT validation at the tunnel, loopback-only services). Installation procedure,
+security model, operations runbook, verification checklist and troubleshooting:
+[`docs/DEPLOYMENT-VPS.md`](./docs/DEPLOYMENT-VPS.md).
+
+**Agent-driven installation:** [`llms-full.txt`](./llms-full.txt) is a self-contained
+guide written for coding agents. Give the repository URL to an agent (Claude Code, Codex,
+Hermes) and ask it to follow `llms-full.txt`: it collects the inputs it needs, stops at
+human approval gates for `sudo` and public exposure, and verifies every phase.
 
 ## Status
 
