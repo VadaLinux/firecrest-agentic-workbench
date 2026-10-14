@@ -21,6 +21,6 @@ cd "$ROOT/docs"
 if [ "$engine" = xelatex ]; then
   pandoc handout.md -o handout.pdf --pdf-engine=xelatex -V papersize=a4 -V geometry:margin=1.8cm -V fontsize=10pt
 else
-  pandoc handout.md -o handout.pdf --pdf-engine="$engine" -V papersize=a4
+  pandoc handout.md -o handout.pdf --pdf-engine="$engine" --css=handout.css -V papersize=a4
 fi
 echo "wrote docs/handout.pdf"
