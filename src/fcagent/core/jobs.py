@@ -89,6 +89,8 @@ class JobService:
         self.audit = audit
         self.client = client
         self.store = store
+        if store is not None and store.audit is None:
+            store.audit = audit
         self.public_key_path = public_key_path
 
     # ------------------------------------------------------------ prepare

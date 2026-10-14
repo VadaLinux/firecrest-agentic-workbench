@@ -482,6 +482,6 @@ what the request implied.
 | `list_templates` | before running anything | approved templates + typed parameters |
 | `prepare_job` | the user wants a job run | returns `prepared_id`, summary, node-hours; submits nothing |
 | `submit_job(prepared_id)` | after a human ran `fcagent approve <prepared_id>` | **breaking:** no `script`, no `approved_by`; single use |
+| `download_file(path, job_id)` | saving a job output | records path + SHA-256 in the job's card |
 | `get_provenance(job_id)` | "how was this run?" / reproduce | card in `runs/jobs/<jobId>/` (gitignored) |
 | `rerun_from_provenance(job_id)` | rerun a past job | checks rendered-script hash, then needs a new approval |
-

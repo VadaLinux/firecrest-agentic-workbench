@@ -16,10 +16,12 @@ import sys
 from pathlib import Path
 
 from fcagent.core.approval import (
+    REJECT_REASONS,
     ApprovalStore,
     generate_keypair,
     load_private_key,
 )
+from fcagent.core.audit import AuditLog
 from fcagent.core.errors import GuardrailDenied
 from fcagent.core.jobs import summarize
 from fcagent.core.settings import CoreSettings
@@ -36,7 +38,11 @@ def _identity() -> tuple[str, int, str | None]:
 
 def _store() -> ApprovalStore:
     settings = CoreSettings.from_env()
-    return ApprovalStore(settings.state_dir, settings.approval_ttl_seconds)
+    return ApprovalStore(
+        settings.state_dir,
+        settings.approval_ttl_seconds,
+        AuditLog(settings.audit_path),
+    )
 
 
 def _cmd_show(args: argparse.Namespace) -> int:
@@ -76,7 +82,8 @@ def _cmd_approve(args: argparse.Namespace) -> int:
 
 
 def _cmd_reject(args: argparse.Namespace) -> int:
-    _store().reject(args.prepared_id)
+    name, _, _ = _identity()
+    _store().reject(args.prepared_id, rejector=name, reason=args.reason)
     print("rejected")
     return 0
 
@@ -97,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
     ):
         p = sub.add_parser(name)
         p.add_argument("prepared_id")
+        if name == "reject":
+            p.add_argument("--reason", choices=sorted(REJECT_REASONS), default="other")
         p.set_defaults(func=func)
     p = sub.add_parser("keygen", help="create an Ed25519 approval key pair")
     p.add_argument("--private", required=True)
@@ -108,6 +117,9 @@ def main(argv: list[str] | None = None) -> int:
     except GuardrailDenied as exc:
         print(f"refused: {exc.reason}", file=sys.stderr)
         return 1
+    except ValueError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

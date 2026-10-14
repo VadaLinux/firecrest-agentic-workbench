@@ -19,6 +19,9 @@ from fcagent.core.errors import GuardrailDenied
 
 JOB_ID = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 SCHEMA_VERSION = 1
+TERMINAL_STATES = frozenset(
+    {"COMPLETED", "FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL"}
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -75,6 +78,41 @@ class ProvenanceStore:
         card.update(fields)
         self.write(job_id, card)
         return card
+
+    def has(self, job_id: str) -> bool:
+        """True only for jobs submitted through this server (a card exists)."""
+        try:
+            return (self._dir(job_id) / "provenance.json").is_file()
+        except GuardrailDenied:
+            return False
+
+    def record_status(self, job_id: str, job: dict[str, Any]) -> dict[str, Any] | None:
+        """Update state/exit code/times from a status record; no-op if unmanaged."""
+        if not self.has(job_id):
+            return None
+        card = self.read(job_id)
+        times = dict(card.get("times") or {})
+        if job.get("start_time") is not None:
+            times["started"] = job["start_time"]
+        state = job.get("state")
+        if state in TERMINAL_STATES and job.get("end_time") is not None:
+            times["ended"] = job["end_time"]
+        return self.update(
+            job_id, state=state, exit_code=job.get("exit_code"), times=times
+        )
+
+    def record_output(
+        self, job_id: str, remote_path: str, payload: bytes
+    ) -> dict[str, Any] | None:
+        """Link a downloaded output to a managed job with its SHA-256."""
+        if not self.has(job_id):
+            return None
+        card = self.read(job_id)
+        outputs = [o for o in card.get("outputs", []) if o["path"] != remote_path]
+        outputs.append(
+            {"path": remote_path, "sha256": hashlib.sha256(payload).hexdigest()}
+        )
+        return self.update(job_id, outputs=outputs)
 
     def record_outputs(self, job_id: str, paths: list[Path]) -> dict[str, Any]:
         outputs = [

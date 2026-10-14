@@ -172,3 +172,50 @@ def test_tool_descriptions_describe_the_approval_flow_not_free_scripts() -> None
     assert "Never send a free" in prepare
     schema = yaml.safe_load((ROOT / "templates/hello.yaml").read_text())["parameters"]
     assert {"nodes", "partition"} <= set(schema)
+
+
+async def test_status_and_download_update_the_card_of_managed_jobs_only(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import hashlib
+
+    from client_v2 import JobStatus
+
+    fake = FakeV2()
+
+    async def client():
+        return fake
+
+    async def status(job_id: str, *a: Any, **k: Any) -> JobStatus:
+        return JobStatus(
+            jobid=job_id, state="COMPLETED", exit_code=0, start_time=10, end_time=20
+        )
+
+    async def download(path: str, *a: Any, **k: Any) -> bytes:
+        return b"result"
+
+    fake.get_job_status = status  # type: ignore[method-assign]
+    fake.download_file = download  # type: ignore[method-assign]
+    monkeypatch.setattr(server, "get_client", client)
+    monkeypatch.chdir(tmp_path)
+    prepared = await _prepare()
+    _approve(env, prepared["prepared_id"])
+    await server.submit_job(prepared_id=prepared["prepared_id"])
+
+    assert (await server.get_job_status("99"))["ok"] is True
+    saved = await server.download_file("/home/demo/slurm-99.out", job_id="99")
+    assert saved["ok"] is True
+    card = (await server.get_provenance("99"))["provenance"]
+    assert card["state"] == "COMPLETED" and card["exit_code"] == 0
+    assert card["times"]["started"] == 10 and card["times"]["ended"] == 20
+    assert card["outputs"] == [
+        {
+            "path": "/home/demo/slurm-99.out",
+            "sha256": hashlib.sha256(b"result").hexdigest(),
+        }
+    ]
+
+    # A job this server never submitted keeps working and gets no card.
+    assert (await server.get_job_status("7"))["ok"] is True
+    assert (await server.download_file("/x/y.txt", job_id="7"))["ok"] is True
+    assert not (env.state / "jobs" / "7").exists()

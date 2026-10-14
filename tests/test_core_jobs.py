@@ -15,7 +15,7 @@ from fcagent.core.approval import ApprovalStore, load_private_key, load_public_k
 from fcagent.core.audit import AuditLog
 from fcagent.core.jobs import GuardrailDenied, JobService
 from fcagent.core.provenance import ProvenanceStore
-from fcagent.core.settings import Limits
+from fcagent.core.settings import CoreSettings, Limits
 
 SECRET = "fictional-secret-must-never-appear"
 
@@ -238,7 +238,7 @@ def test_rejected_record_cannot_be_submitted(
 ) -> None:
     jobs, client, _ = service
     pid = prepared(jobs)
-    jobs.store.reject(pid)  # type: ignore[union-attr]
+    jobs.store.reject(pid, rejector="bob")  # type: ignore[union-attr]
     with pytest.raises(GuardrailDenied, match="approval_rejected"):
         jobs.submit(actor="researcher", prepared_id=pid)
     assert not client.calls
@@ -395,3 +395,87 @@ def test_provenance_card_roundtrip_and_output_hashes(tmp_path: Path) -> None:
     assert "Reproducibility card" in (tmp_path / "jobs/7/provenance.md").read_text()
     with pytest.raises(GuardrailDenied, match="provenance_not_found"):
         store.read("../x")
+
+
+def test_audit_trail_covers_prepare_approve_reject_expiry_submit(
+    service: tuple[JobService, Client, Path], approver_key: object
+) -> None:
+    jobs, _, audit_path = service
+    ok, rejected, expired = prepared(jobs), prepared(jobs), prepared(jobs)
+    approve(jobs.store, ok, approver_key)  # type: ignore[arg-type]
+    jobs.submit(actor="researcher", prepared_id=ok)
+    jobs.store.reject(rejected, rejector="bob", reason="policy")  # type: ignore[union-attr]
+    with pytest.raises(GuardrailDenied, match="reject_reason_invalid"):
+        jobs.store.reject(expired, rejector="bob", reason="my password is hunter2")  # type: ignore[union-attr]
+    jobs.store.ttl_seconds = -1  # type: ignore[union-attr]
+    late = prepared(jobs)
+    with pytest.raises(GuardrailDenied, match="approval_expired"):
+        approve(jobs.store, late, approver_key)  # type: ignore[arg-type]
+    records = audit_lines(audit_path)
+    events = {(r["action"], r["outcome"]) for r in records}
+    assert {
+        ("prepare_job", "prepared"),
+        ("approve_job", "approved"),
+        ("reject_job", "rejected"),
+        ("approve_job", "expired"),
+        ("submit_job", "submitted"),
+    } <= events
+    approved = next(
+        r
+        for r in records
+        if r["action"] == "approve_job" and r["outcome"] == "approved"
+    )
+    assert approved["actor"] == "alice" and approved["approved_by"] == "alice"
+    assert approved["ts"] and approved["prepared_id"] == ok
+    rej = next(r for r in records if r["action"] == "reject_job")
+    assert rej["actor"] == "bob" and rej["reason"] == "policy"
+    text = audit_path.read_text()
+    for forbidden in (
+        "hunter2",
+        "PRIVATE",
+        "signature",
+        "#!/bin/bash",
+        "message",
+        "echo",
+    ):
+        assert forbidden not in text
+
+
+def test_settings_reject_relative_state_and_key_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("FCAGENT_ROOT", str(root))
+    monkeypatch.setenv("FCAGENT_STATE_DIR", "runs")
+    with pytest.raises(ValueError, match="FCAGENT_STATE_DIR must be an absolute"):
+        CoreSettings.from_env()
+    monkeypatch.setenv("FCAGENT_STATE_DIR", "/var/lib/fcagent")
+    monkeypatch.setenv("FCAGENT_APPROVAL_PUBLIC_KEY", "pub.pem")
+    with pytest.raises(ValueError, match="FCAGENT_APPROVAL_PUBLIC_KEY must be"):
+        CoreSettings.from_env()
+    monkeypatch.setenv("FCAGENT_APPROVAL_PUBLIC_KEY", "/etc/fcagent/approval.pub")
+    settings = CoreSettings.from_env()
+    assert settings.state_dir == Path("/var/lib/fcagent")
+    monkeypatch.delenv("FCAGENT_STATE_DIR")
+    assert CoreSettings.from_env().state_dir == root / "runs"
+
+
+def test_provenance_status_and_output_only_for_managed_jobs(tmp_path: Path) -> None:
+    store = ProvenanceStore(tmp_path)
+    assert store.record_status("5", {"state": "COMPLETED"}) is None
+    assert store.record_output("5", "/x", b"d") is None
+    assert not (tmp_path / "jobs").exists()
+    store.write("5", {"times": {"submitted": "t0", "started": None, "ended": None}})
+    store.record_status("5", {"state": "RUNNING", "start_time": 10})
+    running = store.read("5")
+    assert running["state"] == "RUNNING" and running["times"]["ended"] is None
+    store.record_status(
+        "5", {"state": "COMPLETED", "exit_code": 0, "start_time": 10, "end_time": 20}
+    )
+    done = store.read("5")
+    assert (done["state"], done["exit_code"]) == ("COMPLETED", 0)
+    assert done["times"] == {"submitted": "t0", "started": 10, "ended": 20}
+    store.record_output("5", "/home/demo/out.txt", b"data")
+    assert store.read("5")["outputs"] == [
+        {"path": "/home/demo/out.txt", "sha256": hashlib.sha256(b"data").hexdigest()}
+    ]

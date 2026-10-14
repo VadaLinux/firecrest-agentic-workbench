@@ -41,6 +41,12 @@ class CoreSettings:
 
     @classmethod
     def from_env(cls) -> "CoreSettings":
+        def absolute(name: str, value: str) -> Path:
+            path = Path(value)
+            if not path.is_absolute():
+                raise ValueError(f"{name} must be an absolute path")
+            return path
+
         root = Path(
             os.environ.get("FCAGENT_ROOT", Path(__file__).resolve().parents[3])
         ).resolve()
@@ -54,9 +60,16 @@ class CoreSettings:
             audit_path=Path(
                 os.environ.get("FCAGENT_AUDIT_PATH", root / "logs/audit.jsonl")
             ),
-            state_dir=Path(os.environ.get("FCAGENT_STATE_DIR", root / "runs")),
+            state_dir=(
+                absolute("FCAGENT_STATE_DIR", os.environ["FCAGENT_STATE_DIR"])
+                if os.environ.get("FCAGENT_STATE_DIR")
+                else root / "runs"
+            ),
             approval_public_key=(
-                Path(os.environ["FCAGENT_APPROVAL_PUBLIC_KEY"])
+                absolute(
+                    "FCAGENT_APPROVAL_PUBLIC_KEY",
+                    os.environ["FCAGENT_APPROVAL_PUBLIC_KEY"],
+                )
                 if os.environ.get("FCAGENT_APPROVAL_PUBLIC_KEY")
                 else None
             ),

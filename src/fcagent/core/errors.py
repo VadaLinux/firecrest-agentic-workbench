@@ -47,6 +47,9 @@ NEXT_STEPS: dict[str, str] = {
     ),
     "prepared_already_consumed": REPREPARE_STEP,
     "prepared_context_changed": REPREPARE_STEP,
+    "reject_reason_invalid": (
+        "Use one of: not_intended, wrong_parameters, too_expensive, policy, other."
+    ),
     "approval_key_invalid": (
         "The approval key file is missing or unsafe; ask the operator to fix "
         "FCAGENT_APPROVAL_PUBLIC_KEY (absolute path, regular file, safe permissions)."

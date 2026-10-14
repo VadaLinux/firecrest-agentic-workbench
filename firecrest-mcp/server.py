@@ -195,6 +195,14 @@ async def prepare_job(
         return _fail(exc)
 
 
+def _update_card_status(job_id: str, job: dict[str, Any]) -> None:
+    """Refresh the card of a job this server submitted; unmanaged jobs are ignored."""
+    try:
+        ProvenanceStore(CoreSettings.from_env().state_dir).record_status(job_id, job)
+    except Exception:  # noqa: BLE001 - provenance never breaks a status query
+        logger.warning("could not update provenance for job %s", job_id)
+
+
 def _versions(client: FirecRESTClientV2, settings: CoreSettings) -> dict[str, Any]:
     try:
         import importlib.metadata as md
@@ -400,6 +408,7 @@ async def get_job_status(job_id: str) -> dict[str, Any]:
         status = await client.get_job_status(job_id)
         job = status.model_dump(exclude_none=True)
         result: dict[str, Any] = {"ok": True, "job": job}
+        _update_card_status(job_id, job)
         # Reproduced against the v1 demo stack only: while a job is PENDING,
         # sacct reports a placeholder record — name "allocation", empty
         # partition — which is replaced by the real values once the job is
@@ -446,7 +455,7 @@ async def list_files(path: str) -> dict[str, Any]:
 
 
 @server.tool()
-async def download_file(path: str) -> dict[str, Any]:
+async def download_file(path: str, job_id: str | None = None) -> dict[str, Any]:
     """Fetch a file from the cluster and return its contents.
 
     Use this to read a file the user asked about, to inspect a job's output when
@@ -457,10 +466,21 @@ async def download_file(path: str) -> dict[str, Any]:
     Text files come back in `content`. Large files and binary files are saved
     locally instead, with `saved_to` giving the local path and `preview` holding
     the beginning — check `truncated` before assuming you have the whole file.
+
+    Pass `job_id` when the file is an output of a job submitted through
+    submit_job: its path and SHA-256 are then recorded in the job's
+    reproducibility card. Without `job_id` nothing is recorded.
     """
     try:
         client = await get_client()
         payload = await client.download_file(path)
+        if job_id:
+            try:
+                ProvenanceStore(CoreSettings.from_env().state_dir).record_output(
+                    job_id, path, payload
+                )
+            except Exception:  # noqa: BLE001 - provenance never breaks a download
+                logger.warning("could not record output for job %s", job_id)
 
         DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
         local = DOWNLOAD_DIR / Path(path).name

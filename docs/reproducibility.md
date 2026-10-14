@@ -40,6 +40,35 @@ group/other. Create a pair with `fcagent keygen --private <path> --public <path>
 The server never receives the private key. Provisioning users, keys or systemd
 settings is done by the operator; nothing here is executed automatically.
 
+## Operator procedure (not executed by this repository)
+
+Nothing below is run by tests, CI or the PR; Gabriele (or the operator) applies it.
+
+1. Create the state dir, owned by the identity that runs the MCP service, outside the
+   checkout and the agent workspace (example `/var/lib/fcagent`, mode 0750).
+2. Generate the key pair as the approver: `fcagent keygen --private <approver-only path>
+   --public /etc/fcagent/approval.pub`. The public file must be a regular file not
+   writable by group/other.
+3. Install the drop-in from `systemd/firecrest-mcp-v2.approval.conf.example` as
+   `/etc/systemd/system/firecrest-mcp-v2.service.d/approval.conf` (sets
+   `FCAGENT_STATE_DIR`, `FCAGENT_APPROVAL_PUBLIC_KEY`, `ReadWritePaths`), then
+   `systemctl daemon-reload` and restart the service.
+4. The approver runs the CLI with the same `FCAGENT_STATE_DIR`,
+   `FCAGENT_AUDIT_PATH` and `FCAGENT_APPROVAL_PRIVATE_KEY` (path) in the shell.
+
+`FCAGENT_STATE_DIR` and `FCAGENT_APPROVAL_PUBLIC_KEY` must be absolute: a relative
+value is refused at startup. Without the drop-in the default `<repo>/runs` is not
+writable by the hardened service, so the gate fails closed (no submission).
+
+## Audit trail
+
+`AuditLog` (JSONL, allowlisted fields only) records `prepare_job`, `approve_job`,
+`reject_job`, `submit_job` (submitted / denied / error / expired) with actor,
+timestamp, `prepared_id`, template, parameter hash and, for approvals, the approver.
+Reject takes a controlled reason (`--reason not_intended|wrong_parameters|too_expensive|policy|other`);
+free text is not accepted, so no secret can enter the audit. Parameters, scripts and
+keys are never written.
+
 ## Known limits (decision D2 — read before presenting this)
 
 This gate is a **process control**, not a cryptographic guarantee against the agent.
@@ -65,6 +94,11 @@ trace identifiers and who approved. Cards never contain tokens or keys.
 `X-Correlation-ID` is the one pyfirecrest sent for the call. `X-Request-ID` is only
 recorded when a real response exposed it; otherwise it is `null` with a note, and is
 never generated client-side.
+
+The card is kept up to date for jobs submitted through this server only:
+`get_job_status` refreshes `state`, `exit_code` and the start/end times, and
+`download_file(path, job_id=<id>)` records the path and SHA-256 of the downloaded
+output. Jobs not submitted here have no card and keep working unchanged.
 
 `get_provenance(job_id)` returns the card. `rerun_from_provenance(job_id)` re-renders
 the card's template and parameters, refuses if the rendered-script or template hash

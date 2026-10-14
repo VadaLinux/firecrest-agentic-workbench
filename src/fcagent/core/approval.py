@@ -33,10 +33,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+from fcagent.core.audit import AuditLog
 from fcagent.core.errors import GuardrailDenied
 
 FORMAT_VERSION = 1
 DEFAULT_TTL_SECONDS = 900
+REJECT_REASONS = frozenset(
+    {"not_intended", "wrong_parameters", "too_expensive", "policy", "other"}
+)
 PREPARED_ID = re.compile(r"^[A-Za-z0-9_-]{32,64}$")
 STATUSES = frozenset({"pending", "approved", "rejected", "consumed"})
 CONTEXT_FIELDS = frozenset(
@@ -148,7 +152,13 @@ def _signed_payload(record: dict[str, Any]) -> bytes:
 class ApprovalStore:
     """File-backed store of prepared records under ``state_dir``."""
 
-    def __init__(self, state_dir: Path, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> None:
+    def __init__(
+        self,
+        state_dir: Path,
+        ttl_seconds: int = DEFAULT_TTL_SECONDS,
+        audit: AuditLog | None = None,
+    ) -> None:
+        self.audit = audit
         self.state_dir = state_dir
         self.ttl_seconds = ttl_seconds
         self.prepared_dir = state_dir / "prepared"
@@ -205,6 +215,33 @@ class ApprovalStore:
         except (ValueError, TypeError) as exc:
             raise GuardrailDenied("prepared_record_invalid") from exc
 
+    def _audit(
+        self,
+        record: dict[str, Any],
+        *,
+        actor: str,
+        action: str,
+        outcome: str,
+        reason: str | None = None,
+        approved_by: str | None = None,
+    ) -> None:
+        """Allowlisted audit event; never writes parameters, scripts or keys."""
+        if self.audit is None:
+            return
+        ctx = record["context"]
+        self.audit.write(
+            actor=actor,
+            action=action,
+            system=str(ctx.get("system", "")),
+            template=ctx.get("template"),
+            parameters_hash=ctx.get("parameters_hash"),
+            job_id=None,
+            outcome=outcome,
+            reason=reason,
+            prepared_id=record["prepared_id"],
+            approved_by=approved_by,
+        )
+
     # -- operations ----------------------------------------------------
     def create(self, context: dict[str, Any]) -> dict[str, Any]:
         record = {
@@ -244,6 +281,13 @@ class ApprovalStore:
             if record["status"] != "pending":
                 raise GuardrailDenied("approval_not_pending")
             if self._expired(record, moment):
+                self._audit(
+                    record,
+                    actor=approver,
+                    action="approve_job",
+                    outcome="expired",
+                    reason="approval_expired",
+                )
                 raise GuardrailDenied("approval_expired")
             record["status"] = "approved"
             record["approval"] = {
@@ -255,15 +299,33 @@ class ApprovalStore:
             signature = private_key.sign(_signed_payload(record))
             record["approval"]["signature"] = base64.b64encode(signature).decode()
             self._write(record)
+            self._audit(
+                record,
+                actor=approver,
+                action="approve_job",
+                outcome="approved",
+                approved_by=approver,
+            )
             return record
 
-    def reject(self, prepared_id: str) -> dict[str, Any]:
+    def reject(
+        self, prepared_id: str, *, rejector: str, reason: str = "other"
+    ) -> dict[str, Any]:
+        if reason not in REJECT_REASONS:
+            raise GuardrailDenied("reject_reason_invalid")
         with self._locked():
             record = self._read(prepared_id)
             if record["status"] != "pending":
                 raise GuardrailDenied("approval_not_pending")
             record["status"] = "rejected"
             self._write(record)
+            self._audit(
+                record,
+                actor=rejector,
+                action="reject_job",
+                outcome="rejected",
+                reason=reason,
+            )
             return record
 
     def claim(
@@ -289,6 +351,13 @@ class ApprovalStore:
                 raise GuardrailDenied("prepared_already_consumed")
             self._verify(record, public_key)
             if self._expired(record, moment):
+                self._audit(
+                    record,
+                    actor="mcp",
+                    action="submit_job",
+                    outcome="expired",
+                    reason="approval_expired",
+                )
                 raise GuardrailDenied("approval_expired")
             if check is not None:
                 check(record["context"])
