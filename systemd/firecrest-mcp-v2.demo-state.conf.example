@@ -2,6 +2,22 @@
 # `demo/run-demo.sh reset` never touches production state. Installed by the operator,
 # not by this repository. Outside the checkout and the agent workspace (D2), owned by
 # the same identity as /var/lib/fcagent. The audit log path is NOT inside this dir.
+#
+# Operator procedure:
+#   1. mkdir /var/lib/fcagent-demo (same owner/mode as /var/lib/fcagent) and create the
+#      marker that lets `demo/run-demo.sh reset` act on it:
+#        touch /var/lib/fcagent-demo/.fcagent-demo-state
+#   2. Copy this file to
+#        /etc/systemd/system/firecrest-mcp-v2.service.d/demo-state.conf
+#      then `systemctl daemon-reload && systemctl restart firecrest-mcp-v2`.
+#   3. In the approver terminal use the SAME state dir:
+#        FCAGENT_STATE_DIR=/var/lib/fcagent-demo fcagent approve <prepared_id>
+#      and set DEMO_STATE_DIR=/var/lib/fcagent-demo in demo/.env.
+#
+# WARNING: while this drop-in is installed, the service uses the DEMO state dir, not
+# /var/lib/fcagent. To return to production after the rehearsal: remove
+# /etc/systemd/system/firecrest-mcp-v2.service.d/demo-state.conf, then
+# `systemctl daemon-reload && systemctl restart firecrest-mcp-v2`.
 [Service]
 Environment=FCAGENT_STATE_DIR=/var/lib/fcagent-demo
 ReadWritePaths=/var/lib/fcagent-demo

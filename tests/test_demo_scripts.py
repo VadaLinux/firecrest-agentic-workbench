@@ -9,6 +9,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 
 
@@ -133,6 +135,7 @@ def _state(tmp_path, name="state"):
         (sd / sub).mkdir(parents=True)
         (sd / sub / "x.json").write_text("{}")
     (sd / "keep.txt").write_text("k")
+    (sd / ".fcagent-demo-state").write_text("")
     return sd
 
 
@@ -180,6 +183,7 @@ def test_reset_state_dir_refuses_inside_repo(tmp_path):
     for sub in ("prepared", "consumed", "jobs"):
         (sd / sub).mkdir(parents=True)
         (sd / sub / "x.json").write_text("{}")
+    (sd / ".fcagent-demo-state").write_text("")
     _refused(tmp_path, sd, root=root)
     assert (sd / "prepared" / "x.json").exists()
 
@@ -190,6 +194,7 @@ def test_reset_state_dir_refuses_inside_workspace(tmp_path):
     for sub in ("prepared", "consumed", "jobs"):
         (sd / sub).mkdir(parents=True)
         (sd / sub / "x.json").write_text("{}")
+    (sd / ".fcagent-demo-state").write_text("")
     _refused(tmp_path, sd, root=root)
     assert (sd / "prepared" / "x.json").exists()
 
@@ -218,7 +223,7 @@ def test_reset_state_dir_refuses_symlinked_subdir(tmp_path):
 def test_reset_state_dir_refuses_production_dir():
     text = (REPO / "demo/run-demo.sh").read_text()
     assert 'PROTECTED_STATE_DIR="/var/lib/fcagent"' in text
-    assert "refusing the production state dir" in text
+    assert "is or contains the production state dir" in text
 
 
 def test_matrix_template_within_guardrails():
@@ -233,3 +238,41 @@ def test_matrix_template_within_guardrails():
     script = (REPO / "templates/matrix.sh").read_text()
     for name in spec["parameters"]:
         assert "{{" + name + "}}" in script
+
+
+def test_reset_state_dir_refuses_missing_marker(tmp_path):
+    sd = _state(tmp_path)
+    (sd / ".fcagent-demo-state").unlink()
+    r = _refused(tmp_path, sd)
+    assert "marker" in r.stdout
+    assert (sd / "prepared" / "x.json").exists()
+
+
+@pytest.mark.parametrize("path", ["/", "/var", "/var/lib"])
+def test_reset_state_dir_refuses_root_and_ancestors_of_production(tmp_path, path):
+    # Refused before anything is deleted, whatever the marker says.
+    r = _refused(tmp_path, path)
+    assert "refusing /" in r.stdout or "production state dir" in r.stdout
+
+
+def test_reset_state_dir_refuses_ancestor_of_audit(tmp_path):
+    sd = _state(tmp_path)
+    audit = sd / "sub" / "audit.jsonl"
+    audit.parent.mkdir()
+    audit.write_text("a")
+    r = _refused(tmp_path, sd, FCAGENT_AUDIT_PATH=str(audit))
+    assert "audit" in r.stdout
+
+
+def test_contains_helper_handles_root_and_siblings(tmp_path):
+    script = (REPO / "demo/run-demo.sh").read_text()
+    start = script.index("contains() {")
+    fn = script[start : script.index("\n}\n", start) + 3]
+    code = (
+        fn
+        + "contains / /var/lib/fcagent && echo A; "
+        + "contains /var/lib/fcagent-demo /var/lib/fcagent || echo B; "
+        + "contains /var/lib /var/lib/fcagent && echo C"
+    )
+    out = subprocess.run(["bash", "-c", code], capture_output=True, text=True)
+    assert out.stdout.split() == ["A", "B", "C"]

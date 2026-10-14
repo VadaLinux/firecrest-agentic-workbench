@@ -61,6 +61,16 @@ cmd_check() {
 # workspace). Only these known sub-directories are emptied; the audit log never is.
 GATE_SUBDIRS=("prepared" "consumed" "jobs")
 PROTECTED_STATE_DIR="/var/lib/fcagent"
+# The operator creates this file inside the demo state dir (see the systemd drop-in
+# example). Without it, reset refuses to touch the directory.
+STATE_MARKER=".fcagent-demo-state"
+
+# contains PARENT CHILD: true if CHILD is PARENT or lies below it. Both get a trailing
+# slash first, so PARENT=/ works and /var/lib/fcagent-demo is not "inside" /var/lib/fcagent.
+contains() {
+  local p="${1%/}/" c="${2%/}/"
+  [[ "$c" == "$p"* ]]
+}
 
 reset_state_dir() {
   local sd="${DEMO_STATE_DIR:-}" ws real audit sub
@@ -73,12 +83,16 @@ reset_state_dir() {
   [ -d "$sd" ] || { bad "state dir does not exist"; return 1; }
   real=$(cd "$sd" && pwd -P)
   [ "$real" = "$sd" ] || { bad "state dir path is not canonical ($real)"; return 1; }
-  [ "$real" = "$PROTECTED_STATE_DIR" ] && { bad "refusing the production state dir"; return 1; }
-  case "$real/" in "$ROOT"/*) bad "state dir is inside the repository"; return 1;; esac
-  case "$real/" in "$ws"/*) bad "state dir is inside the agent workspace"; return 1;; esac
-  case "$ROOT/" in "$real"/*) bad "state dir contains the repository"; return 1;; esac
-  if [ -n "$audit" ]; then
-    case "$audit" in "$real"/*|"$real") bad "state dir contains the audit log"; return 1;; esac
+  [ "$real" = "/" ] && { bad "refusing /"; return 1; }
+  contains "$real" "$PROTECTED_STATE_DIR" && { bad "state dir is or contains the production state dir"; return 1; }
+  contains "$ROOT" "$real" && { bad "state dir is inside the repository"; return 1; }
+  contains "$ws" "$real" && { bad "state dir is inside the agent workspace"; return 1; }
+  contains "$real" "$ROOT" && { bad "state dir contains the repository"; return 1; }
+  if [ -n "$audit" ] && contains "$real" "$audit"; then
+    bad "state dir contains the audit log"; return 1
+  fi
+  if [ -L "$real/$STATE_MARKER" ] || [ ! -f "$real/$STATE_MARKER" ]; then
+    bad "missing marker file $STATE_MARKER: not a demo state dir"; return 1
   fi
   for sub in "${GATE_SUBDIRS[@]}"; do
     if [ -L "$real/$sub" ]; then bad "$sub is a symlink"; return 1; fi
