@@ -67,7 +67,7 @@ Values that identify a specific account are written as placeholders:
 
 | Component | Unit / container | Listens on | Started by |
 |---|---|---|---|
-| FirecREST v2 gateway | `firecrest-v2-firecrest-1` | `127.0.0.1:8000` | `firecrest-demo-v2.service` |
+| FirecREST v2 gateway | `firecrest-v2-firecrest-1` | `127.0.0.1:8000` (API), `127.0.0.1:5678` (debugpy, see below) | `firecrest-demo-v2.service` |
 | Keycloak | `firecrest-v2-keycloak-1` | `127.0.0.1:18080` (HTTP), `127.0.0.1:9090` (management) | `firecrest-demo-v2.service` |
 | Dummy Slurm cluster | `firecrest-v2-slurm-1` | `127.0.0.1:6820`, `127.0.0.1:2222`, `127.0.0.1:5665-5666` | `firecrest-demo-v2.service` |
 | FirecREST MCP server | `firecrest-mcp-v2.service` | `127.0.0.1:8765` | systemd |
@@ -75,6 +75,12 @@ Values that identify a specific account are written as placeholders:
 
 Every listening port is bound to the loopback interface. The host firewall (UFW) allows
 only SSH (22/tcp); no rule is added for this deployment.
+
+The upstream compose file starts the gateway under `debugpy` on port 5678, a development
+setting of the demo stack. A debugger attached to that port can run arbitrary code inside
+the gateway container, so it must stay on loopback: never change `F7T_HOST_IP` to a
+non-loopback address. Other services already present on the host (for example a web
+panel on `*:80`) are outside the scope of this document.
 
 ### Files on the host
 
@@ -120,7 +126,7 @@ Operational rules that follow from this model:
 - `sudo` for installing units and `cloudflared`.
 - A Cloudflare account that holds the DNS zone of the public hostname, with Zero Trust
   enabled.
-- Free loopback ports: 8000, 8765, 18080, 9090, 6820, 2222, 5665-5666.
+- Free loopback ports: 8000, 5678, 8765, 18080, 9090, 6820, 2222, 5665-5666.
 
 ## 4. Installation procedure
 
@@ -308,6 +314,11 @@ Cloudflare Access answers unauthenticated MCP requests with
 discover the authorisation server and open a browser for the Access login. After login,
 `/mcp` lists six tools:
 
+> **Status (14 October 2026):** the `WWW-Authenticate` header and the browser login are
+> verified; the full interactive flow from Claude Code (`/mcp` → *Authenticate*) has not
+> yet been tested end to end. Run check 8 of the [verification checklist](#7-verification-checklist)
+> from the demo laptop before relying on it, and keep a service token (below) as a fallback.
+
 | Tool | Purpose |
 |---|---|
 | `submit_job` | submit an approved template with declared parameters |
@@ -400,7 +411,7 @@ Run after installation, after every update and before a demo.
 | # | Check | Command (on the VPS unless stated) | Expected |
 |---|---|---|---|
 | 1 | Units active | `systemctl is-active firecrest-demo-v2 firecrest-mcp-v2 cloudflared` | `active` ×3 |
-| 2 | Loopback only | `ss -Htln \| awk '{print $4}' \| grep -E ':(8000\|8765\|18080)$'` | `127.0.0.1:` only |
+| 2 | Loopback only | `ss -Htln \| awk '{print $4}' \| grep -E ':(8000\|5678\|8765\|18080\|9090\|6820\|2222\|5665\|5666)$'` | `127.0.0.1:` only |
 | 3 | Firewall | `sudo ufw status` | only 22/tcp allowed |
 | 4 | FirecREST | `scripts/smoke_local.py` (step 4) | `OK` |
 | 5 | Allowlist | curl loop of step 5 | 200, 200, 421 |

@@ -55,7 +55,7 @@ id -nG "$USER" | tr ' ' '\n' | grep -x docker || echo "NOT IN docker GROUP"
 command -v uv || ls ~/.local/bin/uv
 systemctl --version | head -1
 df -h "$HOME" | tail -1; free -g | sed -n 2p
-for p in 8000 8765 18080 9090 6820 2222 5665 5666; do ss -Htln "sport = :$p" | grep -q . && echo "PORT $p BUSY"; done
+for p in 8000 5678 8765 18080 9090 6820 2222 5665 5666; do ss -Htln "sport = :$p" | grep -q . && echo "PORT $p BUSY"; done
 sudo -n true 2>/dev/null && echo "sudo: non-interactive OK" || echo "sudo: needs password/approval"
 command -v ufw && sudo -n ufw status 2>/dev/null | head -5
 ```
@@ -104,8 +104,9 @@ FIRECREST_V2_VERIFY_SSL=true
 EOF
   unset SEC
 fi
-# only if PUBLISH=yes:
-grep -q '^FIRECREST_MCP_PUBLIC_HOST=' .env || echo "FIRECREST_MCP_PUBLIC_HOST=$PUBLIC_HOST" >> .env
+if [ "$PUBLISH" = yes ]; then
+  grep -q '^FIRECREST_MCP_PUBLIC_HOST=' .env || echo "FIRECREST_MCP_PUBLIC_HOST=$PUBLIC_HOST" >> .env
+fi
 chmod 600 .env
 export PATH="$HOME/.local/bin:$PATH"
 [ -x .venv/bin/python ] || uv venv -q .venv
@@ -167,7 +168,7 @@ The first start pulls and builds images and can take 5–15 minutes.
 VERIFY:
 ```bash
 systemctl is-active firecrest-demo-v2                                     # active
-docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'                   # firecrest, slurm (healthy), keycloak (healthy); ports start with 127.0.0.1:
+docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'                   # firecrest, slurm (healthy), keycloak (healthy); ALL ports start with 127.0.0.1: (incl. 5678 = debugpy, must never be public)
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/status/systems        # 401
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/auth/realms/kcrealm  # 200
 cd "$REPO" && uv run --quiet --with pyfirecrest==3.10.0 python scripts/smoke_local.py
