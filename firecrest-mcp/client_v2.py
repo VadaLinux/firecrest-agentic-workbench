@@ -155,13 +155,27 @@ class FirecRESTClientV2:
         #: pyfirecrest; ``X-Request-ID`` only if a real response exposed one).
         self.last_trace: dict[str, Any] | None = None
 
-    @property
-    def server_version(self) -> str | None:
-        """FirecREST server version, if the client exposes it (never guessed)."""
+    async def get_server_version(self, timeout_s: float | None = None) -> str | None:
+        """FirecREST server version, or ``None`` (never guessed, never raises).
+
+        In pyfirecrest 3.10 ``server_version`` is a *method* doing a blocking
+        ``GET /status/systems``, so it runs in a thread. It deliberately does not go
+        through ``_call``, so it cannot overwrite ``last_trace``. It runs after a job
+        was already submitted, so it is bounded (``min(config timeout, 5)`` s by
+        default) and returns ``None`` on timeout: the caller must get the job id.
+        """
         try:
-            return getattr(self._client, "server_version", None)
-        except Exception:  # noqa: BLE001
+            limit = timeout_s
+            if limit is None:
+                limit = min(float(getattr(self.config, "timeout_s", 5) or 5), 5.0)
+            attr = getattr(self._client, "server_version", None)
+            if callable(attr):
+                value = await asyncio.wait_for(asyncio.to_thread(attr), limit)
+            else:
+                value = attr
+        except Exception:  # noqa: BLE001 - includes TimeoutError
             return None
+        return value if isinstance(value, str) else None
 
     @staticmethod
     def _create_client(config: FirecRESTConfigV2) -> Any:
