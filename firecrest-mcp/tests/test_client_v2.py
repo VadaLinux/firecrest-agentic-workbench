@@ -318,3 +318,18 @@ async def test_note_never_repeats_exception_text_with_url_or_token(tmp_path) -> 
     for forbidden in ("Bearer", "eyJ", "://", "pw@", "auth.test"):
         assert forbidden not in note
     assert "HTTP 501" in note
+
+
+@pytest.mark.parametrize("template", ["hello", "matrix"])
+def test_shipped_templates_declare_output_paths_with_only_percent_j(
+    template: str,
+) -> None:
+    from pathlib import Path
+
+    script = (
+        Path(__file__).resolve().parents[2] / "templates" / f"{template}.sh"
+    ).read_text()
+    derived = f7t2._sbatch_paths(script, "/home/demo", "42")
+    assert derived["out"] == "/home/demo/slurm-42.out"
+    assert derived["err"] == "/home/demo/slurm-42.err"
+    assert derived["unsupported"] is False

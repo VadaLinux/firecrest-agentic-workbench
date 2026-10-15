@@ -3,6 +3,8 @@
 #SBATCH --time={{time_minutes}}
 #SBATCH --partition={{partition}}
 #SBATCH --job-name={{job_name}}
+#SBATCH --output=slurm-%j.out
+#SBATCH --error=slurm-%j.err
 # Small dense matrix multiplication (pure awk, no dependencies), size {{size}} x {{size}}.
 awk -v n={{size}} 'BEGIN {
   for (i = 0; i < n; i++) for (j = 0; j < n; j++) { a[i,j] = (i + j) % 7; b[i,j] = (i * j) % 5 }
