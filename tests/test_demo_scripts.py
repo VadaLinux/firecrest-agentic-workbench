@@ -108,7 +108,7 @@ def test_replay_prints_transcripts():
     )
     assert r.returncode == 0
     assert "max_nodes_exceeded" in r.stdout
-    assert all(line.startswith("[SAMPLE]") for line in r.stdout.splitlines())
+    assert all(line.startswith("[REPLAY]") for line in r.stdout.splitlines())
 
 
 def test_scripts_do_not_call_firecrest_directly():
@@ -276,3 +276,18 @@ def test_contains_helper_handles_root_and_siblings(tmp_path):
     )
     out = subprocess.run(["bash", "-c", code], capture_output=True, text=True)
     assert out.stdout.split() == ["A", "B", "C"]
+
+
+def test_prerecorded_files_are_captured_output_without_placeholders_or_secrets() -> (
+    None
+):
+    import re
+
+    files = sorted((REPO / "demo/prerecorded").glob("*.txt"))
+    assert len(files) == 4
+    text = "\n".join(f.read_text() for f in files)
+    assert "PLACEHOLDER" not in text and "SAMPLE" not in text
+    assert "checksum=38402000" in text and "max_nodes_exceeded" in text
+    assert not re.search(
+        r"token|secret|bearer|authorization|BEGIN|password|\.key\b|cf-", text, re.I
+    )
