@@ -42,6 +42,38 @@ def workbench_commit(root: Path) -> str | None:
     return out.stdout.strip() or None
 
 
+def summarize(card: dict[str, Any]) -> dict[str, Any]:
+    """Compact, key-facts-first view of a card.
+
+    Only values already in the card are copied (nothing is invented, missing ones are
+    ``None``). Hashes and the workbench commit are given in full. Tool output can be
+    cut at the end, so this block goes BEFORE the full card in `get_provenance`.
+    """
+    versions = card.get("versions") or {}
+    approval = card.get("approval") or {}
+    hashes = card.get("hashes") or {}
+    summary: dict[str, Any] = {
+        "job_id": card.get("job_id"),
+        "state": card.get("state"),
+        "exit_code": card.get("exit_code"),
+        "workbench_commit": versions.get("workbench_commit"),
+        "approved_by": approval.get("approver"),
+        "approved_at": approval.get("approved_at"),
+        "template": card.get("template"),
+        "template_sha256": hashes.get("template_sha256"),
+        "script_sha256": hashes.get("script_sha256"),
+        "outputs": [
+            {"path": o.get("path"), "sha256": o.get("sha256")}
+            for o in (card.get("outputs") or [])
+        ],
+        "firecrest_server": versions.get("firecrest_server"),
+        "pyfirecrest": versions.get("pyfirecrest"),
+    }
+    if card.get("rerun_of") is not None:
+        summary["rerun_of"] = card["rerun_of"]
+    return summary
+
+
 class ProvenanceStore:
     def __init__(self, state_dir: Path) -> None:
         self.state_dir = state_dir
