@@ -93,9 +93,13 @@ async def get_client() -> FirecRESTClient | FirecRESTClientV2:
     global _client
     if _client is None:
         if _api_version() == "v2":
-            _client = FirecRESTClientV2(FirecRESTConfigV2.from_env())
+            config_v2 = FirecRESTConfigV2.from_env()
+            _require_allowed_default(config_v2.system)
+            _client = FirecRESTClientV2(config_v2)
         else:
-            _client = FirecRESTClient(FirecRESTConfig.from_env())
+            config_v1 = FirecRESTConfig.from_env()
+            _require_allowed_default(config_v1.system)
+            _client = FirecRESTClient(config_v1)
     return _client
 
 
@@ -104,6 +108,14 @@ def _fail(exc: Exception) -> dict[str, Any]:
     result: dict[str, Any] = {"ok": False, "error": type(exc).__name__}
     if isinstance(exc, FirecRESTError) and exc.status is not None:
         result["http_status"] = exc.status
+    if getattr(exc, "approval_consumed", False):
+        # Only set for failures AFTER a successful claim (see _submit_prepared).
+        result["approval_consumed"] = True
+        result["next_step"] = (
+            "The approval was used up by this attempt and cannot be reused. Do not "
+            "retry this prepared_id: tell the user, prepare the job again and ask "
+            "for a new approval."
+        )
     return result
 
 
@@ -126,6 +138,27 @@ def _core() -> tuple[CoreSettings, JobService]:
     return settings, service
 
 
+def _require_allowed_default(default: str) -> None:
+    """Refuse a default system that the limits file does not allow."""
+    allowed = CoreSettings.from_env().limits.allowed_systems
+    if default not in allowed:
+        raise FirecRESTError(
+            f"the default FirecREST system {default[:64]!r} is not in "
+            f"allowed_systems ({', '.join(sorted(allowed))}); fix the limits "
+            "file or the FIRECREST_*SYSTEM setting."
+        )
+
+
+def _check_default_system() -> None:
+    """Startup check. Credentials stay lazy: an unset system is checked on first use."""
+    name = "FIRECREST_V2_SYSTEM" if _api_version() == "v2" else "FIRECREST_SYSTEM"
+    default = os.environ.get(name)
+    if default is None and _api_version() == "v1":
+        default = "cluster"  # client.py's own default
+    if default:
+        _require_allowed_default(default)
+
+
 def _denied(exc: GuardrailDenied) -> dict[str, Any]:
     return {
         "ok": False,
@@ -143,10 +176,19 @@ async def list_templates() -> dict[str, Any]:
     these templates can be run; each parameter has a type (`int` with min/max,
     `enum` with allowed values, or a safe `string` of letters, digits, `_`, `.`
     and `-`). Then call prepare_job with a template name and every parameter.
+    `systems` lists the allowed target systems and the default one; omit `system`
+    in prepare_job to use the default.
     """
     try:
         _, service = _core()
-        return {"ok": True, "templates": service.list_templates()}
+        return {
+            "ok": True,
+            "templates": service.list_templates(),
+            "systems": {
+                "allowed": sorted(service.limits.allowed_systems),
+                "default": (await get_client()).config.system,
+            },
+        }
     except Exception as exc:  # noqa: BLE001
         return _fail(exc)
 
@@ -155,8 +197,8 @@ async def list_templates() -> dict[str, Any]:
 async def prepare_job(
     template: str,
     parameters: dict[str, Any],
-    system: str,
     working_directory: str,
+    system: str | None = None,
     account: str | None = None,
     actor: str = "mcp",
 ) -> dict[str, Any]:
@@ -174,12 +216,15 @@ async def prepare_job(
     the approval expires or anything changes, prepare again. Never send a free
     script: only templates are accepted.
 
-    `system` is the cluster name (the demo system is `cluster`); if unknown, ask
-    or use list_files on a known path, do not guess. `working_directory` must be
-    an absolute path.
+    Omit `system` to use the default target; list_templates shows the allowed
+    systems and the default. A system that is not allowed is refused here, before
+    anything can be approved. The resolved system appears in the `summary`.
+    `working_directory` must be an absolute path.
     """
     try:
         _, service = _core()
+        if system is None:
+            system = (await get_client()).config.system
         prepared = service.prepare(
             actor=actor,
             system=system,
@@ -234,6 +279,21 @@ async def _submit_prepared(
     service: JobService, settings: CoreSettings, prepared_id: str, actor: str
 ) -> dict[str, Any]:
     job = service.claim(actor=actor, prepared_id=prepared_id)
+    try:
+        return await _submit_claimed(service, settings, job, prepared_id, actor)
+    except Exception as exc:
+        # The record is consumed by the claim above: it can never be used again.
+        exc.approval_consumed = True  # type: ignore[attr-defined]
+        raise
+
+
+async def _submit_claimed(
+    service: JobService,
+    settings: CoreSettings,
+    job: Any,
+    prepared_id: str,
+    actor: str,
+) -> dict[str, Any]:
     ctx = job.context
     client = await get_client()
     if not isinstance(client, FirecRESTClientV2):
@@ -355,7 +415,10 @@ async def get_provenance(job_id: str) -> dict[str, Any]:
     """
     try:
         settings, _ = _core()
-        return {"ok": True, "provenance": ProvenanceStore(settings.state_dir).read(job_id)}
+        return {
+            "ok": True,
+            "provenance": ProvenanceStore(settings.state_dir).read(job_id),
+        }
     except GuardrailDenied as exc:
         return _denied(exc)
     except Exception as exc:  # noqa: BLE001
@@ -383,10 +446,10 @@ async def rerun_from_provenance(job_id: str, actor: str = "mcp") -> dict[str, An
         )
         import hashlib
 
-        if (
-            hashlib.sha256(script.encode()).hexdigest() != hashes.get("script_sha256")
-            or hashlib.sha256(spec.path.read_bytes()).hexdigest()
-            != hashes.get("template_sha256")
+        if hashlib.sha256(script.encode()).hexdigest() != hashes.get(
+            "script_sha256"
+        ) or hashlib.sha256(spec.path.read_bytes()).hexdigest() != hashes.get(
+            "template_sha256"
         ):
             raise GuardrailDenied("provenance_hash_mismatch")
         prepared = service.prepare(
@@ -719,6 +782,8 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         _announce("dry-run")
+    else:
+        _check_default_system()
 
     if args.transport == "http":
         logger.info("serving Streamable HTTP on %s:%d", args.host, args.port)

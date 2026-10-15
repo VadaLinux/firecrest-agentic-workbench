@@ -106,6 +106,14 @@ class JobService:
             )
         return found
 
+    def _check_system(self, system: str) -> None:
+        """Refuse a target that is not allowlisted, before any record exists."""
+        if not isinstance(system, str) or system not in self.limits.allowed_systems:
+            exc = GuardrailDenied("unknown_system")
+            allowed = ", ".join(sorted(self.limits.allowed_systems))
+            exc.next_step = f"{exc.next_step} Allowed systems: {allowed}."
+            raise exc
+
     def render(
         self,
         *,
@@ -133,6 +141,7 @@ class JobService:
             raise RuntimeError("No approval store is configured")
         digest = parameters_hash(parameters)
         try:
+            self._check_system(system)
             spec, script = self.render(
                 template=template,
                 parameters=parameters,
@@ -140,7 +149,13 @@ class JobService:
             )
         except GuardrailDenied as exc:
             self._audit(
-                actor, "prepare_job", system, template, digest, "denied", exc.reason
+                actor,
+                "prepare_job",
+                system[:64] if isinstance(system, str) else "",
+                template,
+                digest,
+                "denied",
+                exc.reason,
             )
             raise
         created_at, expires_at = self.store.expiry()

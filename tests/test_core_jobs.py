@@ -59,7 +59,7 @@ def service(tmp_path: Path, keys: tuple[Path, Path]) -> tuple[JobService, Client
     return (
         JobService(
             template_directory=templates,
-            limits=Limits(2, 30, frozenset({"debug", "batch"})),
+            limits=Limits(2, 30, frozenset({"debug", "batch"}), frozenset({"cluster"})),
             audit=AuditLog(audit_path),
             client=client,
             store=ApprovalStore(tmp_path / "state"),
@@ -479,3 +479,18 @@ def test_provenance_status_and_output_only_for_managed_jobs(tmp_path: Path) -> N
     assert store.read("5")["outputs"] == [
         {"path": "/home/demo/out.txt", "sha256": hashlib.sha256(b"data").hexdigest()}
     ]
+
+
+def test_limits_require_allowed_systems(tmp_path: Path) -> None:
+    base = "max_nodes: 2\nmax_time_minutes: 30\nallowed_partitions: [a]\n"
+    missing = tmp_path / "m.yaml"
+    missing.write_text(base)
+    with pytest.raises(ValueError, match="allowed_systems"):
+        Limits.from_yaml(missing)
+    empty = tmp_path / "e.yaml"
+    empty.write_text(base + "allowed_systems: []\n")
+    with pytest.raises(ValueError, match="allowed_systems"):
+        Limits.from_yaml(empty)
+    ok = tmp_path / "ok.yaml"
+    ok.write_text(base + "allowed_systems: [s1, s2]\n")
+    assert Limits.from_yaml(ok).allowed_systems == frozenset({"s1", "s2"})

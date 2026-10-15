@@ -40,6 +40,25 @@ group/other. Create a pair with `fcagent keygen --private <path> --public <path>
 The server never receives the private key. Provisioning users, keys or systemd
 settings is done by the operator; nothing here is executed automatically.
 
+## Target system allowlist
+
+`config/limits.yaml` must define `allowed_systems`, a non-empty list of the FirecREST
+system names a job may target (for example `cluster-slurm-api`). It is **mandatory**:
+a limits file without it, including a custom `FCAGENT_LIMITS_FILE`, makes the server
+fail to start.
+
+- `prepare_job` refuses a system that is not in the list (`unknown_system`) before any
+  record exists, and the refusal is audited. `system` is optional: when omitted the
+  default is used.
+- The default is the one the active FirecREST client is configured with:
+  `FIRECREST_V2_SYSTEM` (v2) or `FIRECREST_SYSTEM` (v1, client default `cluster`). It
+  **must be in `allowed_systems`**, otherwise the server refuses to start or to create
+  its client.
+- `list_templates` returns `systems: {allowed, default}`. The summary shown to the
+  approver and the prepared record always carry the resolved system.
+- If a submit fails after the approval was used (`approval_consumed: true`), the same
+  `prepared_id` can never be reused: prepare again and ask for a new approval.
+
 ## Operator procedure (not executed by this repository)
 
 Nothing below is run by tests, CI or the PR; Gabriele (or the operator) applies it.

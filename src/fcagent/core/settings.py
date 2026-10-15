@@ -17,14 +17,26 @@ class Limits:
     max_nodes: int
     max_time_minutes: int
     allowed_partitions: frozenset[str]
+    allowed_systems: frozenset[str]
 
     @classmethod
     def from_yaml(cls, path: Path) -> "Limits":
         raw: dict[str, Any] = yaml.safe_load(path.read_text()) or {}
+        systems = raw.get("allowed_systems")
+        if (
+            not isinstance(systems, list)
+            or not systems
+            or not all(isinstance(name, str) and name for name in systems)
+        ):
+            raise ValueError(
+                "limits file must define a non-empty list `allowed_systems` "
+                f"({path.name})"
+            )
         return cls(
             max_nodes=int(raw["max_nodes"]),
             max_time_minutes=int(raw["max_time_minutes"]),
             allowed_partitions=frozenset(raw["allowed_partitions"]),
+            allowed_systems=frozenset(systems),
         )
 
 

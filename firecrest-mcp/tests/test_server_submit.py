@@ -46,6 +46,7 @@ class FakeV2(FirecRESTClientV2):
     def __init__(self) -> None:  # no config / network
         self.calls: list[dict[str, Any]] = []
         self.last_trace = {"x_correlation_id": "cid-1", "x_request_id": None}
+        self.config = SimpleNamespace(system="cluster-slurm-api")
 
     async def submit_job(self, **kwargs: Any) -> Any:  # type: ignore[override]
         self.calls.append(kwargs)
@@ -60,7 +61,7 @@ async def _prepare(**over: Any) -> dict[str, Any]:
     args: dict[str, Any] = {
         "template": "hello",
         "parameters": dict(PARAMS),
-        "system": "cluster",
+        "system": "cluster-slurm-api",
         "working_directory": "/home/demo",
     }
     args.update(over)
@@ -153,7 +154,20 @@ async def test_unknown_provenance_is_reported(env: SimpleNamespace) -> None:
     assert result["ok"] is False and result["reason"] == "provenance_not_found"
 
 
-async def test_list_templates_matches_schema(env: SimpleNamespace) -> None:
+async def _use_fake(monkeypatch: pytest.MonkeyPatch, fake: Any = None) -> Any:
+    fake = fake or FakeV2()
+
+    async def client():
+        return fake
+
+    monkeypatch.setattr(server, "get_client", client)
+    return fake
+
+
+async def test_list_templates_matches_schema(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _use_fake(monkeypatch)
     result = await server.list_templates()
     hello = next(t for t in result["templates"] if t["template"] == "hello")
     schema = yaml.safe_load((ROOT / "templates/hello.yaml").read_text())
@@ -406,3 +420,92 @@ async def test_no_allocation_note_for_a_real_name(
     monkeypatch.setattr(server, "get_client", fake_client)
     out = await server.get_job_status("6")
     assert "note" not in out and "requested_job_name" not in out
+
+
+async def test_list_templates_exposes_allowed_and_default_system(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _use_fake(monkeypatch)
+    systems = (await server.list_templates())["systems"]
+    assert systems == {"allowed": ["cluster-slurm-api"], "default": "cluster-slurm-api"}
+
+
+async def test_prepare_without_system_uses_client_default_and_shows_it(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _use_fake(monkeypatch)
+    prepared = await _prepare(system=None)
+    assert prepared["ok"] is True
+    assert "cluster-slurm-api" in prepared["summary"]
+    record = env.store.get(prepared["prepared_id"])
+    assert record["context"]["system"] == "cluster-slurm-api"
+
+
+async def test_unknown_system_is_refused_before_any_record_and_audited(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _use_fake(monkeypatch)
+    out = await _prepare(system="cluster" + "x" * 500)
+    assert out["ok"] is False and out["reason"] == "unknown_system"
+    assert "cluster-slurm-api" in out["next_step"]
+    assert "x" * 100 not in json.dumps(out)
+    prepared_dir = env.state / "prepared"
+    assert not prepared_dir.exists() or not list(prepared_dir.iterdir())
+    audit = [json.loads(line) for line in env.audit.read_text().splitlines()]
+    assert audit[-1]["outcome"] == "denied" and audit[-1]["reason"] == "unknown_system"
+    assert len(audit[-1]["system"]) <= 64
+
+
+async def test_rerun_with_a_no_longer_allowed_system_creates_no_record(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = await _use_fake(monkeypatch)
+    prepared = await _prepare()
+    _approve(env, prepared["prepared_id"])
+    assert (await server.submit_job(prepared_id=prepared["prepared_id"]))["ok"]
+    card = server.ProvenanceStore(env.state).read("99")
+    card["system"] = "retired-system"
+    server.ProvenanceStore(env.state).write("99", card)
+    before = len(list((env.state / "prepared").iterdir()))
+    out = await server.rerun_from_provenance("99")
+    assert out["ok"] is False and out["reason"] == "unknown_system"
+    assert len(list((env.state / "prepared").iterdir())) == before
+    assert len(fake.calls) == 1
+
+
+class _FailingV2(FakeV2):
+    async def submit_job(self, **kwargs: Any) -> Any:  # type: ignore[override]
+        raise server.FirecRESTError("boom", status=404)
+
+
+async def test_failed_submit_after_claim_reports_approval_consumed(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _use_fake(monkeypatch, _FailingV2())
+    prepared = await _prepare()
+    _approve(env, prepared["prepared_id"])
+    out = await server.submit_job(prepared_id=prepared["prepared_id"])
+    assert out["ok"] is False and out["http_status"] == 404
+    assert out["approval_consumed"] is True and "prepare" in out["next_step"]
+    retry = await server.submit_job(prepared_id=prepared["prepared_id"])
+    assert retry["reason"] == "prepared_already_consumed"
+
+
+async def test_refusals_before_the_claim_never_say_approval_consumed(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _use_fake(monkeypatch)
+    prepared = await _prepare()
+    pending = await server.submit_job(prepared_id=prepared["prepared_id"])
+    assert pending["reason"] == "approval_pending"
+    assert "approval_consumed" not in pending
+    unknown = await server.submit_job(prepared_id="A" * 32)
+    assert "approval_consumed" not in unknown
+
+
+def test_default_system_outside_the_allowlist_fails_with_a_clear_error(
+    env: SimpleNamespace,
+) -> None:
+    with pytest.raises(server.FirecRESTError, match="allowed_systems"):
+        server._require_allowed_default("cluster")
+    server._require_allowed_default("cluster-slurm-api")
