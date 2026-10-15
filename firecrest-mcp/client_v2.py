@@ -80,6 +80,8 @@ class FirecRESTConfigV2:
     client_id: str
     client_secret: str
     system: str
+    #: Optional default for prepare_job; None means the caller must pass one.
+    working_directory: str | None = None
     timeout_s: float = DEFAULT_TIMEOUT_S
     log_dir: Path = field(default_factory=lambda: Path("logs"))
     verify_ssl: bool = True
@@ -101,6 +103,7 @@ class FirecRESTConfigV2:
             client_id=need("FIRECREST_V2_CLIENT_ID"),
             client_secret=need("FIRECREST_V2_CLIENT_SECRET"),
             system=need("FIRECREST_V2_SYSTEM"),
+            working_directory=os.environ.get("FIRECREST_V2_WORKING_DIRECTORY") or None,
             timeout_s=float(os.environ.get("FIRECREST_V2_TIMEOUT", DEFAULT_TIMEOUT_S)),
             log_dir=Path(os.environ.get("FIRECREST_V2_LOG_DIR", "logs")),
             verify_ssl=os.environ.get("FIRECREST_V2_VERIFY_SSL", "true").lower()

@@ -30,7 +30,14 @@ NEXT_STEPS: dict[str, str] = {
         "Use one of the allowed systems (see list_templates) or omit `system` "
         "to use the default; then prepare again."
     ),
-    "working_directory_invalid": "Pass an absolute working_directory (starts with /).",
+    "working_directory_invalid": (
+        "Pass a normalized absolute working_directory (starts with /, no `.`, "
+        "`..` or `//`)."
+    ),
+    "working_directory_not_allowed": (
+        "Use an allowed working directory (see list_templates) or omit it to "
+        "use the default; then prepare again."
+    ),
     "prepared_id_required": (
         "Call prepare_job first, wait for `fcagent approve <prepared_id>` by a "
         "human, then call submit_job(prepared_id)."

@@ -46,7 +46,9 @@ class FakeV2(FirecRESTClientV2):
     def __init__(self) -> None:  # no config / network
         self.calls: list[dict[str, Any]] = []
         self.last_trace = {"x_correlation_id": "cid-1", "x_request_id": None}
-        self.config = SimpleNamespace(system="cluster-slurm-api")
+        self.config = SimpleNamespace(
+            system="cluster-slurm-api", working_directory="/home/fireuser"
+        )
 
     async def submit_job(self, **kwargs: Any) -> Any:  # type: ignore[override]
         self.calls.append(kwargs)
@@ -62,7 +64,7 @@ async def _prepare(**over: Any) -> dict[str, Any]:
         "template": "hello",
         "parameters": dict(PARAMS),
         "system": "cluster-slurm-api",
-        "working_directory": "/home/demo",
+        "working_directory": "/home/fireuser",
     }
     args.update(over)
     return await server.prepare_job(**args)
@@ -221,14 +223,14 @@ async def test_status_and_download_update_the_card_of_managed_jobs_only(
     await server.submit_job(prepared_id=prepared["prepared_id"])
 
     assert (await server.get_job_status("99"))["ok"] is True
-    saved = await server.download_file("/home/demo/slurm-99.out", job_id="99")
+    saved = await server.download_file("/home/fireuser/slurm-99.out", job_id="99")
     assert saved["ok"] is True
     card = (await server.get_provenance("99"))["provenance"]
     assert card["state"] == "COMPLETED" and card["exit_code"] == 0
     assert card["times"]["started"] == 10 and card["times"]["ended"] == 20
     assert card["outputs"] == [
         {
-            "path": "/home/demo/slurm-99.out",
+            "path": "/home/fireuser/slurm-99.out",
             "sha256": hashlib.sha256(b"result").hexdigest(),
         }
     ]
@@ -509,3 +511,98 @@ def test_default_system_outside_the_allowlist_fails_with_a_clear_error(
     with pytest.raises(server.FirecRESTError, match="allowed_systems"):
         server._require_allowed_default("cluster")
     server._require_allowed_default("cluster-slurm-api")
+
+
+async def test_list_templates_exposes_working_directory_allowed_and_default(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _use_fake(monkeypatch)
+    wd = (await server.list_templates())["working_directory"]
+    assert wd == {"allowed": ["/home/fireuser"], "default": "/home/fireuser"}
+
+
+async def test_prepare_without_working_directory_uses_the_configured_default(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _use_fake(monkeypatch)
+    prepared = await _prepare(working_directory=None)
+    assert prepared["ok"] is True
+    record = env.store.get(prepared["prepared_id"])
+    assert record["context"]["working_directory"] == "/home/fireuser"
+
+
+async def test_no_default_means_working_directory_is_required(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = await _use_fake(monkeypatch)
+    fake.config.working_directory = None
+    assert (await server.list_templates())["working_directory"]["default"] is None
+    out = await _prepare(working_directory=None)
+    assert out["ok"] is False and out["reason"] == "working_directory_invalid"
+    assert not (env.state / "prepared").exists() or not list(
+        (env.state / "prepared").iterdir()
+    )
+
+
+async def test_guessed_working_directory_is_refused_without_a_record(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _use_fake(monkeypatch)
+    out = await _prepare(working_directory="/home/master")
+    assert out["ok"] is False and out["reason"] == "working_directory_not_allowed"
+    assert (
+        "/home/fireuser" in out["next_step"] and "/home/master" not in out["next_step"]
+    )
+    assert not (env.state / "prepared").exists() or not list(
+        (env.state / "prepared").iterdir()
+    )
+
+
+async def test_rerun_with_a_no_longer_allowed_directory_creates_no_record(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = await _use_fake(monkeypatch)
+    prepared = await _prepare()
+    _approve(env, prepared["prepared_id"])
+    assert (await server.submit_job(prepared_id=prepared["prepared_id"]))["ok"]
+    card = server.ProvenanceStore(env.state).read("99")
+    card["working_directory"] = "/srv/elsewhere"
+    server.ProvenanceStore(env.state).write("99", card)
+    before = len(list((env.state / "prepared").iterdir()))
+    out = await server.rerun_from_provenance("99")
+    assert out["ok"] is False and out["reason"] == "working_directory_not_allowed"
+    assert len(list((env.state / "prepared").iterdir())) == before
+    assert len(fake.calls) == 1
+
+
+def test_default_working_directory_outside_the_allowlist_fails_clearly(
+    env: SimpleNamespace,
+) -> None:
+    server._require_allowed_working_directory(None)  # no default: nothing to check
+    server._require_allowed_working_directory("/home/fireuser/run")
+    with pytest.raises(server.FirecRESTError, match="allowed_working_directories"):
+        server._require_allowed_working_directory("/home/master")
+
+
+def test_client_config_reads_the_optional_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import client_v2
+
+    base = {
+        "FIRECREST_V2_BASE_URL": "https://f.test",
+        "FIRECREST_V2_TOKEN_URL": "https://a.test/t",
+        "FIRECREST_V2_CLIENT_ID": "c",
+        "FIRECREST_V2_CLIENT_SECRET": "s",
+        "FIRECREST_V2_SYSTEM": "cluster-slurm-api",
+    }
+    for key, value in base.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("FIRECREST_V2_WORKING_DIRECTORY", raising=False)
+    none = tmp_path / "none.env"
+    none.write_text("")
+    assert client_v2.FirecRESTConfigV2.from_env(none).working_directory is None
+    monkeypatch.setenv("FIRECREST_V2_WORKING_DIRECTORY", "/home/fireuser")
+    assert (
+        client_v2.FirecRESTConfigV2.from_env(none).working_directory == "/home/fireuser"
+    )

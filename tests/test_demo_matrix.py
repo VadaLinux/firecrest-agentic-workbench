@@ -33,7 +33,7 @@ def test_matrix_listed_and_rendered(tmp_path):
     svc = _service(tmp_path)
     assert "matrix" in {t["template"] for t in svc.list_templates()}
     _, script = svc.render(
-        template="matrix", parameters=PARAMS, working_directory="/tmp/demo"
+        template="matrix", parameters=PARAMS, working_directory="/home/fireuser"
     )
     assert "--job-name=matrix-demo" in script and "{{" not in script
 
@@ -48,7 +48,7 @@ def test_matrix_out_of_policy_is_denied(tmp_path, override, reason):
         svc.render(
             template="matrix",
             parameters={**PARAMS, **override},
-            working_directory="/tmp/demo",
+            working_directory="/home/fireuser",
         )
     if reason:
         assert reason in str(exc.value)

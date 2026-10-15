@@ -42,6 +42,19 @@ REJECT_REASONS = frozenset(
     {"not_intended", "wrong_parameters", "too_expensive", "policy", "other"}
 )
 PREPARED_ID = re.compile(r"^[A-Za-z0-9_-]{32,64}$")
+
+
+def new_prepared_id() -> str:
+    """A fresh id that never starts with ``-``, so `fcagent approve <id>` is safe.
+
+    The accepted format (``PREPARED_ID``) is unchanged: existing records stay valid.
+    """
+    while True:
+        candidate = secrets.token_urlsafe(24)
+        if candidate[0] != "-":
+            return candidate
+
+
 STATUSES = frozenset({"pending", "approved", "rejected", "consumed"})
 CONTEXT_FIELDS = frozenset(
     {
@@ -246,7 +259,7 @@ class ApprovalStore:
     def create(self, context: dict[str, Any]) -> dict[str, Any]:
         record = {
             "format": FORMAT_VERSION,
-            "prepared_id": secrets.token_urlsafe(24),
+            "prepared_id": new_prepared_id(),
             "status": "pending",
             "context": context,
             "approval": None,

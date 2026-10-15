@@ -5,3 +5,5 @@ allowed_partitions:
   - part02
 allowed_systems:
   - cluster-slurm-api
+allowed_working_directories:
+  - /home/fireuser
