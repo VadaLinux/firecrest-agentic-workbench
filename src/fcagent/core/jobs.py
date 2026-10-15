@@ -14,7 +14,7 @@ import yaml
 from fcagent.core.approval import ApprovalStore, load_public_key
 from fcagent.core.audit import AuditLog
 from fcagent.core.errors import GuardrailDenied
-from fcagent.core.settings import Limits
+from fcagent.core.settings import Limits, is_normalized_absolute, path_within
 
 __all__ = [
     "GuardrailDenied",
@@ -114,6 +114,15 @@ class JobService:
             exc.next_step = f"{exc.next_step} Allowed systems: {allowed}."
             raise exc
 
+    def _check_working_directory(self, working_directory: str) -> None:
+        if not is_normalized_absolute(working_directory):
+            raise GuardrailDenied("working_directory_invalid")
+        if not path_within(working_directory, self.limits.allowed_working_directories):
+            exc = GuardrailDenied("working_directory_not_allowed")
+            allowed = ", ".join(sorted(self.limits.allowed_working_directories))
+            exc.next_step = f"{exc.next_step} Allowed: {allowed}."
+            raise exc
+
     def render(
         self,
         *,
@@ -142,6 +151,7 @@ class JobService:
         digest = parameters_hash(parameters)
         try:
             self._check_system(system)
+            self._check_working_directory(working_directory)
             spec, script = self.render(
                 template=template,
                 parameters=parameters,
@@ -326,7 +336,7 @@ class JobService:
         spec: TemplateSpec,
         working_directory: str,
     ) -> None:
-        if not working_directory.startswith("/"):
+        if not is_normalized_absolute(working_directory):
             raise GuardrailDenied("working_directory_invalid")
         if set(parameters) != set(spec.parameters):
             raise GuardrailDenied("template_parameters_invalid")
@@ -334,13 +344,25 @@ class JobService:
             self._validate_value(name, parameters[name], definition)
         nodes = parameters.get("nodes")
         if isinstance(nodes, int) and nodes > self.limits.max_nodes:
-            raise GuardrailDenied("max_nodes_exceeded")
+            exc = GuardrailDenied("max_nodes_exceeded")
+            exc.next_step = (
+                f"{exc.next_step} The limit is max_nodes={self.limits.max_nodes}."
+            )
+            raise exc
         minutes = parameters.get("time_minutes")
         if isinstance(minutes, int) and minutes > self.limits.max_time_minutes:
-            raise GuardrailDenied("max_time_exceeded")
+            exc = GuardrailDenied("max_time_exceeded")
+            exc.next_step = (
+                f"{exc.next_step} The limit is "
+                f"max_time_minutes={self.limits.max_time_minutes}."
+            )
+            raise exc
         partition = parameters.get("partition")
         if partition is not None and partition not in self.limits.allowed_partitions:
-            raise GuardrailDenied("partition_not_allowed")
+            exc = GuardrailDenied("partition_not_allowed")
+            allowed = ", ".join(sorted(self.limits.allowed_partitions))
+            exc.next_step = f"{exc.next_step} Allowed partitions: {allowed}."
+            raise exc
 
     @staticmethod
     def _validate_value(name: str, value: Any, definition: dict[str, Any]) -> None:

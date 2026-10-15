@@ -40,7 +40,7 @@ from fcagent.core.audit import AuditLog
 from fcagent.core.errors import GuardrailDenied
 from fcagent.core.jobs import JobService
 from fcagent.core.provenance import ProvenanceStore, workbench_commit
-from fcagent.core.settings import CoreSettings
+from fcagent.core.settings import CoreSettings, path_within
 
 logger = logging.getLogger("firecrest-mcp")
 
@@ -95,6 +95,7 @@ async def get_client() -> FirecRESTClient | FirecRESTClientV2:
         if _api_version() == "v2":
             config_v2 = FirecRESTConfigV2.from_env()
             _require_allowed_default(config_v2.system)
+            _require_allowed_working_directory(config_v2.working_directory)
             _client = FirecRESTClientV2(config_v2)
         else:
             config_v1 = FirecRESTConfig.from_env()
@@ -138,6 +139,19 @@ def _core() -> tuple[CoreSettings, JobService]:
     return settings, service
 
 
+def _require_allowed_working_directory(default: str | None) -> None:
+    """Refuse a configured default working directory the limits file does not allow."""
+    if default is None:
+        return
+    allowed = CoreSettings.from_env().limits.allowed_working_directories
+    if not path_within(default, allowed):
+        raise FirecRESTError(
+            "the default working directory is not under allowed_working_directories "
+            f"({', '.join(sorted(allowed))}); fix the limits file or "
+            "FIRECREST_V2_WORKING_DIRECTORY."
+        )
+
+
 def _require_allowed_default(default: str) -> None:
     """Refuse a default system that the limits file does not allow."""
     allowed = CoreSettings.from_env().limits.allowed_systems
@@ -157,6 +171,10 @@ def _check_default_system() -> None:
         default = "cluster"  # client.py's own default
     if default:
         _require_allowed_default(default)
+    if _api_version() == "v2":
+        _require_allowed_working_directory(
+            os.environ.get("FIRECREST_V2_WORKING_DIRECTORY") or None
+        )
 
 
 def _denied(exc: GuardrailDenied) -> dict[str, Any]:
@@ -188,6 +206,12 @@ async def list_templates() -> dict[str, Any]:
                 "allowed": sorted(service.limits.allowed_systems),
                 "default": (await get_client()).config.system,
             },
+            "working_directory": {
+                "allowed": sorted(service.limits.allowed_working_directories),
+                "default": getattr(
+                    (await get_client()).config, "working_directory", None
+                ),
+            },
         }
     except Exception as exc:  # noqa: BLE001
         return _fail(exc)
@@ -197,7 +221,7 @@ async def list_templates() -> dict[str, Any]:
 async def prepare_job(
     template: str,
     parameters: dict[str, Any],
-    working_directory: str,
+    working_directory: str | None = None,
     system: str | None = None,
     account: str | None = None,
     actor: str = "mcp",
@@ -219,12 +243,21 @@ async def prepare_job(
     Omit `system` to use the default target; list_templates shows the allowed
     systems and the default. A system that is not allowed is refused here, before
     anything can be approved. The resolved system appears in the `summary`.
-    `working_directory` must be an absolute path.
+    `working_directory` is optional: omit it to use the default shown by
+    list_templates (`working_directory.default`); if that is `null` you must pass
+    one. It must be a normalized absolute path under an allowed directory (also
+    listed there); anything else is refused before anything can be approved.
     """
     try:
         _, service = _core()
         if system is None:
             system = (await get_client()).config.system
+        if working_directory is None:
+            working_directory = getattr(
+                (await get_client()).config, "working_directory", None
+            )
+            if working_directory is None:
+                raise GuardrailDenied("working_directory_invalid")
         prepared = service.prepare(
             actor=actor,
             system=system,

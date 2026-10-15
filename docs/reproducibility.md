@@ -59,6 +59,31 @@ fail to start.
 - If a submit fails after the approval was used (`approval_consumed: true`), the same
   `prepared_id` can never be reused: prepare again and ask for a new approval.
 
+## Working directory allowlist
+
+`config/limits.yaml` must also define `allowed_working_directories`, a non-empty list
+of **normalized absolute** path prefixes (not `/`, no `.`/`..`/`//`, no trailing slash).
+It is **mandatory**, like `allowed_systems`: a limits file without it, including a
+custom `FCAGENT_LIMITS_FILE`, makes the server fail to start.
+
+- A job's `working_directory` must be normalized (relative paths, `.`/`..` components,
+  `//`, a trailing slash and values over 512 characters are refused, never rewritten)
+  and inside an allowed prefix, compared by path component (`/home/fireuser/x` is
+  inside `/home/fireuser`, `/home/fireuser2` is not). Otherwise `prepare_job` refuses
+  it (`working_directory_invalid` / `working_directory_not_allowed`) before any record
+  exists; the refusal is audited and the `next_step` lists the allowed prefixes without
+  repeating the input. `rerun_from_provenance` applies the same rule.
+- `working_directory` is optional in `prepare_job` only if
+  `FIRECREST_V2_WORKING_DIRECTORY` is configured for the client. If it is not set there
+  is no default (`list_templates` reports `working_directory.default: null`) and the
+  caller must pass one. A configured default must be inside the allowlist, otherwise
+  the server refuses to start or to create its client.
+- `list_templates` returns `working_directory: {allowed, default}`.
+
+Other refusals now state the configured limit in `next_step` (`max_nodes`,
+`max_time_minutes`, the allowed partitions). Prepared ids never start with `-`, so
+`fcagent approve <id>` cannot mistake them for an option.
+
 ## Operator procedure (not executed by this repository)
 
 Nothing below is run by tests, CI or the PR; Gabriele (or the operator) applies it.

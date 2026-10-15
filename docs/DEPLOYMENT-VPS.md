@@ -94,7 +94,7 @@ panel on `*:80`) are outside the scope of this document.
 | `<repo>/firecrest-mcp/logs/` | job logs and `audit.jsonl` | no (gitignored) |
 | `<repo>/firecrest-mcp/downloads/` | files fetched by `download_file` | no (gitignored) |
 | `<repo>/templates/` | approved job templates | yes |
-| `<repo>/config/limits.yaml` | submission limits (nodes, time, partitions) and `allowed_systems` (mandatory; the default `FIRECREST_V2_SYSTEM` must be in it) | yes |
+| `<repo>/config/limits.yaml` | submission limits (nodes, time, partitions) `allowed_systems` and `allowed_working_directories` (both mandatory; the default `FIRECREST_V2_SYSTEM` / `FIRECREST_V2_WORKING_DIRECTORY` must be inside them) | yes |
 
 ## 2. Security model
 

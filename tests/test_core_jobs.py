@@ -59,7 +59,13 @@ def service(tmp_path: Path, keys: tuple[Path, Path]) -> tuple[JobService, Client
     return (
         JobService(
             template_directory=templates,
-            limits=Limits(2, 30, frozenset({"debug", "batch"}), frozenset({"cluster"})),
+            limits=Limits(
+                2,
+                30,
+                frozenset({"debug", "batch"}),
+                frozenset({"cluster"}),
+                frozenset({"/home/demo"}),
+            ),
             audit=AuditLog(audit_path),
             client=client,
             store=ApprovalStore(tmp_path / "state"),
@@ -482,7 +488,10 @@ def test_provenance_status_and_output_only_for_managed_jobs(tmp_path: Path) -> N
 
 
 def test_limits_require_allowed_systems(tmp_path: Path) -> None:
-    base = "max_nodes: 2\nmax_time_minutes: 30\nallowed_partitions: [a]\n"
+    base = (
+        "max_nodes: 2\nmax_time_minutes: 30\nallowed_partitions: [a]\n"
+        "allowed_working_directories: [/home/x]\n"
+    )
     missing = tmp_path / "m.yaml"
     missing.write_text(base)
     with pytest.raises(ValueError, match="allowed_systems"):
@@ -494,3 +503,126 @@ def test_limits_require_allowed_systems(tmp_path: Path) -> None:
     ok = tmp_path / "ok.yaml"
     ok.write_text(base + "allowed_systems: [s1, s2]\n")
     assert Limits.from_yaml(ok).allowed_systems == frozenset({"s1", "s2"})
+
+
+# ---- working directory allowlist, prepared_id, limit values (CRIGAMO-140) ----
+from fcagent.core import approval as approval_module  # noqa: E402
+from fcagent.core.settings import is_normalized_absolute, path_within  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "relative/x",
+        "",
+        "/a/../b",
+        "/a/./b",
+        "/a//b",
+        "/a/b/",
+        "/a\x00b",
+        "/" + "x" * 600,
+    ],
+)
+def test_non_normalized_paths_are_rejected_not_rewritten(value: str) -> None:
+    assert is_normalized_absolute(value) is False
+    assert path_within(value, frozenset({"/a"})) is False
+
+
+def test_path_within_is_component_wise() -> None:
+    allowed = frozenset({"/home/fireuser"})
+    assert path_within("/home/fireuser", allowed)
+    assert path_within("/home/fireuser/run1", allowed)
+    assert not path_within("/home/fireuser2", allowed)
+    assert not path_within("/home", allowed)
+    assert not path_within("/home/fireuser/../x", allowed)
+
+
+@pytest.mark.parametrize("entry", ["/", "relative", "/a/../b", "/a//b", "/a/"])
+def test_limits_reject_bad_allowed_working_directories(
+    tmp_path: Path, entry: str
+) -> None:
+    f = tmp_path / "l.yaml"
+    f.write_text(
+        "max_nodes: 2\nmax_time_minutes: 30\nallowed_partitions: [a]\n"
+        f"allowed_systems: [s]\nallowed_working_directories: ['{entry}']\n"
+    )
+    with pytest.raises(ValueError, match="allowed_working_directories"):
+        Limits.from_yaml(f)
+
+
+def test_limits_require_allowed_working_directories(tmp_path: Path) -> None:
+    f = tmp_path / "l.yaml"
+    f.write_text(
+        "max_nodes: 2\nmax_time_minutes: 30\nallowed_partitions: [a]\n"
+        "allowed_systems: [s]\n"
+    )
+    with pytest.raises(ValueError, match="allowed_working_directories"):
+        Limits.from_yaml(f)
+
+
+def test_prepared_id_starting_with_dash_is_discarded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    values = iter(["-" + "a" * 31, "-" + "b" * 31, "Zx" + "c" * 30])
+    monkeypatch.setattr(
+        approval_module.secrets, "token_urlsafe", lambda _n: next(values)
+    )
+    assert approval_module.new_prepared_id() == "Zx" + "c" * 30
+
+
+def test_generated_prepared_ids_never_start_with_dash_and_match_the_format() -> None:
+    for _ in range(5000):
+        pid = approval_module.new_prepared_id()
+        assert not pid.startswith("-")
+        assert approval_module.PREPARED_ID.fullmatch(pid)
+    assert approval_module.PREPARED_ID.fullmatch("-" + "a" * 31)  # old ids stay valid
+
+
+@pytest.mark.parametrize(
+    "wd, reason",
+    [
+        ("/etc", "working_directory_not_allowed"),
+        ("/home/demo2", "working_directory_not_allowed"),
+        ("/home/demo/../x", "working_directory_invalid"),
+        ("/home//demo", "working_directory_invalid"),
+        ("relative", "working_directory_invalid"),
+    ],
+)
+def test_working_directory_is_refused_before_any_record(
+    service: tuple[JobService, Client, Path], wd: str, reason: str
+) -> None:
+    jobs, client, audit_path = service
+    secret_path = wd + "/MARKER-do-not-echo"
+    with pytest.raises(GuardrailDenied) as info:
+        jobs.prepare(**request(working_directory=secret_path))  # type: ignore[arg-type]
+    assert info.value.reason == reason
+    assert "MARKER-do-not-echo" not in info.value.next_step
+    assert not client.calls
+    assert not list((jobs.store.prepared_dir).glob("*.json"))  # type: ignore[union-attr]
+    assert audit_lines(audit_path)[-1]["reason"] == reason
+
+
+def test_allowed_working_directory_subpath_is_accepted(
+    service: tuple[JobService, Client, Path],
+) -> None:
+    jobs, _, _ = service
+    assert prepared(jobs)  # request() uses /home/demo
+    jobs.prepare(**request(working_directory="/home/demo/run1"))  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"parameters": _params(nodes=3)}, "max_nodes=2"),
+        ({"parameters": _params(time_minutes=31)}, "max_time_minutes=30"),
+        ({"parameters": _params(partition="gpu")}, "batch, debug"),
+    ],
+)
+def test_next_step_reports_the_configured_limit_only(
+    service: tuple[JobService, Client, Path], kwargs: dict[str, object], expected: str
+) -> None:
+    jobs, _, _ = service
+    with pytest.raises(GuardrailDenied) as info:
+        jobs.prepare(**request(**kwargs))  # type: ignore[arg-type]
+    assert expected in info.value.next_step
+    assert "gpu" not in info.value.next_step

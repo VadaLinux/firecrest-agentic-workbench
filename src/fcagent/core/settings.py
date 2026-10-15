@@ -9,6 +9,34 @@ from typing import Any
 
 import yaml
 
+MAX_PATH_LENGTH = 512
+
+
+def is_normalized_absolute(path: str) -> bool:
+    """True for an absolute POSIX path that needs no normalization at all.
+
+    Relative paths, ``.``/``..`` components, empty components (``//``), a trailing
+    slash, NUL bytes and over-long values are all rejected rather than rewritten.
+    """
+    if (
+        not isinstance(path, str)
+        or not path.startswith("/")
+        or len(path) > MAX_PATH_LENGTH
+        or "\x00" in path
+    ):
+        return False
+    if path == "/":
+        return True
+    parts = path[1:].split("/")
+    return all(part not in ("", ".", "..") for part in parts)
+
+
+def path_within(path: str, prefixes: frozenset[str]) -> bool:
+    """Component-wise containment: ``/a/b`` is inside ``/a``, ``/ab`` is not."""
+    if not is_normalized_absolute(path):
+        return False
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes)
+
 
 @dataclass(frozen=True)
 class Limits:
@@ -18,6 +46,7 @@ class Limits:
     max_time_minutes: int
     allowed_partitions: frozenset[str]
     allowed_systems: frozenset[str]
+    allowed_working_directories: frozenset[str] = frozenset()
 
     @classmethod
     def from_yaml(cls, path: Path) -> "Limits":
@@ -32,11 +61,28 @@ class Limits:
                 "limits file must define a non-empty list `allowed_systems` "
                 f"({path.name})"
             )
+        dirs = raw.get("allowed_working_directories")
+        if (
+            not isinstance(dirs, list)
+            or not dirs
+            or not all(
+                isinstance(entry, str)
+                and entry != "/"
+                and is_normalized_absolute(entry)
+                for entry in dirs
+            )
+        ):
+            raise ValueError(
+                "limits file must define a non-empty list "
+                "`allowed_working_directories` of normalized absolute paths "
+                f"other than `/` ({path.name})"
+            )
         return cls(
             max_nodes=int(raw["max_nodes"]),
             max_time_minutes=int(raw["max_time_minutes"]),
             allowed_partitions=frozenset(raw["allowed_partitions"]),
             allowed_systems=frozenset(systems),
+            allowed_working_directories=frozenset(dirs),
         )
 
 
