@@ -7,11 +7,11 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 DELAY="${DEMO_REPLAY_DELAY:-1}"
 case "$DELAY" in ''|*[!0-9.]*) echo "invalid DEMO_REPLAY_DELAY" >&2; exit 2;; esac
 if [ "$#" -gt 0 ]; then files=("$@"); else files=("$DIR"/prerecorded/*.txt); fi
-echo "[SAMPLE] TEMPLATE, NOT REAL OUTPUT: <PLACEHOLDER> values must be replaced with captured output."
+echo "[REPLAY] RECORDED OUTPUT (captured 2026-10-15 on the VPS), NOT LIVE. Say so on stage."
 for f in "${files[@]}"; do
   [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
   while IFS= read -r line || [ -n "$line" ]; do
-    printf '[SAMPLE] %s\n' "$line"
+    printf '[REPLAY] %s\n' "$line"
     sleep "$DELAY"
   done < "$f"
 done

@@ -4,8 +4,11 @@
    and then `DEMO_FALLBACK_MODEL` through `scripts/omniroute_check.py`. Both live only in
    gitignored `.env` files (see `demo/.env.example`).
 2. **Everything down.** `demo/replay.sh` prints the transcript in `demo/prerecorded/`.
-   Only the 4-node refusal in `04-guardrail.txt` is real captured output (from the VPS service, template `hello`); the rest is a **template, not real output**: every line is prefixed `[SAMPLE]` and values
-   that must come from a real run are `<PLACEHOLDER: ...>`. Replace them with output
-   captured from the rehearsal on the VPS (after removing tokens, keys, key paths and
-   Cloudflare headers) before relying on Plan B.
+   The files are **real output, excerpted; annotations marked**: captured on
+   2026-10-15 from the VPS service (FirecREST 2.6.1; jobs 11 and 12, `matrix`, 1 node,
+   `checksum=38402000`, plus the 4-node refusal). Reduced responses are marked
+   `[excerpt]` and comments start with `# note:`; no value was changed or invented. The outputs contain no
+   tokens, keys, key paths or Cloudflare headers. Every printed line is prefixed
+   `[REPLAY]` and the banner says it is recorded and not live: say so on stage.
+   If the flow, the templates or the tool output change, capture again.
 3. **Last resort.** Play the backup video from the laptop (`demo/VIDEO.md`).
