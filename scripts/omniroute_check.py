@@ -9,6 +9,11 @@ import urllib.request
 from urllib.error import HTTPError, URLError
 
 
+# Cloudflare in front of the proxy answers HTTP 403 to urllib's default
+# `Python-urllib/x` User-Agent, so every request names itself explicitly.
+USER_AGENT = "firecrest-workbench-check/1.0"
+
+
 def run_check():
     discovery_url = os.environ.get("OMNIROUTE_DISCOVERY_URL", "")
     target_model = os.environ.get("OMNIROUTE_MODEL", "")
@@ -38,6 +43,7 @@ def run_check():
     models_url = base_endpoint + "/models"
 
     req = urllib.request.Request(models_url)
+    req.add_header("User-Agent", USER_AGENT)
     api_key = os.environ.get("OMNIROUTE_API_KEY", "").strip()
     if api_key:
         req.add_header("Authorization", f"Bearer {api_key}")
@@ -85,6 +91,7 @@ def run_check():
     # Capability ping (optional)
     status_url = base_endpoint + "/omniroute/status"
     req_cap = urllib.request.Request(status_url)
+    req_cap.add_header("User-Agent", USER_AGENT)
     if api_key:
         req_cap.add_header("Authorization", f"Bearer {api_key}")
     try:
