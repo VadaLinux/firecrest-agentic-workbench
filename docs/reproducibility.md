@@ -33,6 +33,8 @@ gate. Tests use fixtures only. Refusals return `reason` and a `next_step`.
 | `FCAGENT_APPROVAL_PUBLIC_KEY` | absolute path of the PEM public key (MCP server). |
 | `FCAGENT_APPROVAL_PRIVATE_KEY` | absolute path of the PEM private key (approval CLI only). |
 | `FCAGENT_APPROVAL_TTL` | approval validity in seconds (default 900). |
+| `FCAGENT_AI_CLIENT`, `FCAGENT_AI_MODEL` | optional, declared by the operator; recorded in the card as `ai_agent` (see below). |
+| `FCAGENT_RETENTION_DAYS` | retention for `scripts/retention_cleanup.py` (default 90). |
 
 Key files must be regular files (no symlinks), absolute paths; the private key
 must not be accessible to group/other (0600), the public key not writable by
@@ -148,3 +150,9 @@ output. Jobs not submitted here have no card and keep working unchanged.
 the card's template and parameters, refuses if the rendered-script or template hash
 differs from the card, and otherwise returns a new `prepared_id` that **still needs
 a fresh `fcagent approve`**.
+
+The card also has an additive `ai_agent` object `{client, model}` taken only from
+`FCAGENT_AI_CLIENT` and `FCAGENT_AI_MODEL` (trimmed, printable, at most 128
+characters). It is `null` when neither is set, and each missing member is `null`; nothing
+is inferred. `schema` stays 1 and older cards without the field still load and render.
+Retention and data protection: [trust-and-compliance.md](trust-and-compliance.md).

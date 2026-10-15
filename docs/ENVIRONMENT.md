@@ -69,3 +69,12 @@ The suite contains 44 tests in this revision. The required acceptance result is 
 The development environment can point DocMind and the agent at CSCS's inference service without changing the wrapper. Follow [INFERENCE.md](INFERENCE.md) for the exact environment variables, model identifiers and the explicitly unverified credential-dependent path; do not duplicate secrets in this repository.
 
 Furthermore, an experimental local proxy override is supported via OmniRoute. To engage it, use the provided `.env.example` in the root folder. Refer to [INFERENCE.md](INFERENCE.md) for networking caveats (e.g. `0.0.0.0` vs loopback bridge binding).
+
+## Declared AI client, retention
+
+| Variable | Meaning |
+|---|---|
+| `FCAGENT_AI_CLIENT`, `FCAGENT_AI_MODEL` | optional labels recorded in the reproducibility card as `ai_agent`; `null` when unset |
+| `FCAGENT_RETENTION_DAYS` | positive integer, default 90; used by `scripts/retention_cleanup.py` (dry-run unless `--apply`) |
+
+See [trust-and-compliance.md](trust-and-compliance.md).

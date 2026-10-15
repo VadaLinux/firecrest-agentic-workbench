@@ -1,6 +1,6 @@
 # FirecREST Agentic Workbench
 
-> **Product scope:** [docs/product.md](./docs/product.md) · **Platform:** [docs/agentos.md](./docs/agentos.md)
+> **Product scope:** [docs/product.md](./docs/product.md) · **Platform:** [docs/agentos.md](./docs/agentos.md) · **Trust & data protection:** [docs/trust-and-compliance.md](./docs/trust-and-compliance.md)
 
 ## What it does in 30 seconds
 

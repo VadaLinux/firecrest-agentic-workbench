@@ -42,6 +42,15 @@ component talks to the API.
 > without sudo, and keep the private key under a separate approver identity that the
 > agent runtime cannot reach. Then the signature becomes a technical barrier.
 
+## Trust by design
+
+> You are interacting with an AI agent; every job needs a human approval.
+
+1. **Human in the loop:** no job is submitted without a signed human approval.
+2. **Traceable:** reproducibility cards and an audit log that never stores parameters or scripts; the card records the declared AI client and model.
+3. **Minimal data, limited time:** only the approver's OS user name is personal data; retention defaults to 90 days with a dry-run cleanup.
+4. **Honest limits:** we adopt GDPR, Swiss FADP and EU AI Act principles by design; this is not legal advice and not a statement of conformity. See `docs/trust-and-compliance.md`.
+
 ## Try it
 
 Everything runs against the official FirecREST demo stack; no real credentials are needed.

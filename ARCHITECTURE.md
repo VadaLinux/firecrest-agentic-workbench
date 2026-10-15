@@ -1,5 +1,7 @@
 # Architecture
 
+Security, data protection and retention: [docs/trust-and-compliance.md](docs/trust-and-compliance.md).
+
 ## Design principles
 
 1. **The agent never talks to FirecREST directly.** It only ever calls MCP tools. This keeps auth, retries and rate limiting in one place (the FirecREST MCP wrapper), and means the same agent config works whether the backend is the local dummy cluster or a real Alps endpoint.

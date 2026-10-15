@@ -24,6 +24,35 @@ TERMINAL_STATES = frozenset(
 )
 
 
+AI_AGENT_MAX_LENGTH = 128
+
+
+def _clean_declared(value: str | None) -> str | None:
+    """Normalize a declared label: printable text, trimmed, at most 128 chars.
+
+    Unset, blank or non-printable values become ``None``; they are never guessed.
+    """
+    if value is None:
+        return None
+    value = value.strip()
+    if not value or not value.isprintable():
+        return None
+    return value[:AI_AGENT_MAX_LENGTH]
+
+
+def ai_agent_from_env() -> dict[str, str | None] | None:
+    """AI client/model as *declared* by the operator; ``None`` when neither is set.
+
+    Reads only ``FCAGENT_AI_CLIENT`` and ``FCAGENT_AI_MODEL`` (never keys, URLs or
+    headers). A value that is unset is ``null``; nothing is inferred.
+    """
+    client = _clean_declared(os.environ.get("FCAGENT_AI_CLIENT"))
+    model = _clean_declared(os.environ.get("FCAGENT_AI_MODEL"))
+    if client is None and model is None:
+        return None
+    return {"client": client, "model": model}
+
+
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -155,6 +184,7 @@ class ProvenanceStore:
                 "x_correlation_id": None,
                 "note": "none observed",
             },
+            "ai_agent": ai_agent_from_env(),
             "approval": {
                 "prepared_id": prepared_id,
                 "approver": approval["approver"],
@@ -179,6 +209,7 @@ def render_markdown(card: dict[str, Any]) -> str:
         f"- Approved by: `{(card.get('approval') or {}).get('approver')}`"
         f" at `{(card.get('approval') or {}).get('approved_at')}`",
         f"- Trace IDs: `{json.dumps(card.get('trace'), sort_keys=True)}`",
+        f"- AI agent (declared): `{json.dumps(card.get('ai_agent'), sort_keys=True)}`",
         "",
         "## Outputs",
     ]
