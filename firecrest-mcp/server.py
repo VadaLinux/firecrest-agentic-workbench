@@ -39,7 +39,7 @@ from fcagent.core.approval import ApprovalStore
 from fcagent.core.audit import AuditLog
 from fcagent.core.errors import GuardrailDenied
 from fcagent.core.jobs import JobService
-from fcagent.core.provenance import ProvenanceStore, workbench_commit
+from fcagent.core.provenance import ProvenanceStore, summarize, workbench_commit
 from fcagent.core.settings import CoreSettings, path_within
 
 logger = logging.getLogger("firecrest-mcp")
@@ -445,13 +445,16 @@ async def get_provenance(job_id: str) -> dict[str, Any]:
     script and files, system, partition, FirecREST/pyfirecrest/workbench
     versions, times, state, exit code, output hashes, trace identifiers and who
     approved it. Missing trace identifiers are `null`, never invented.
+
+    The result starts with a compact `summary` (state, exit code, workbench
+    commit, approver, template/script/output SHA-256, versions): answer from it
+    and quote values in full. The complete card follows in `provenance`.
     """
     try:
         settings, _ = _core()
-        return {
-            "ok": True,
-            "provenance": ProvenanceStore(settings.state_dir).read(job_id),
-        }
+        card = ProvenanceStore(settings.state_dir).read(job_id)
+        # `summary` first: if the output is cut, the key facts are already there.
+        return {"ok": True, "summary": summarize(card), "provenance": card}
     except GuardrailDenied as exc:
         return _denied(exc)
     except Exception as exc:  # noqa: BLE001

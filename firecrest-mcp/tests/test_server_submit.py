@@ -606,3 +606,33 @@ def test_client_config_reads_the_optional_working_directory(
     assert (
         client_v2.FirecRESTConfigV2.from_env(none).working_directory == "/home/fireuser"
     )
+
+
+async def test_get_provenance_puts_the_summary_before_the_full_card(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _use_fake(monkeypatch)
+    prepared = await _prepare()
+    _approve(env, prepared["prepared_id"])
+    assert (await server.submit_job(prepared_id=prepared["prepared_id"]))["ok"]
+    out = await server.get_provenance("99")
+    # field order is what survives a tail cut: summary strictly before the card
+    assert list(out) == ["ok", "summary", "provenance"]
+    text = json.dumps(out)
+    assert text.index('"summary"') < text.index('"provenance"')
+    summary, card = out["summary"], out["provenance"]
+    assert summary["workbench_commit"] == card["versions"]["workbench_commit"]
+    assert summary["workbench_commit"]  # full value, not shortened
+    assert summary["approved_by"] == "alice"
+    assert summary["script_sha256"] == card["hashes"]["script_sha256"]
+    assert summary["template_sha256"] == card["hashes"]["template_sha256"]
+    assert summary["state"] == card["state"] and summary["job_id"] == "99"
+
+
+async def test_summary_never_invents_missing_values() -> None:
+    from fcagent.core.provenance import summarize
+
+    s = summarize({"job_id": "1"})
+    assert s["workbench_commit"] is None and s["outputs"] == []
+    assert s["approved_by"] is None and "rerun_of" not in s
+    assert summarize({"job_id": "2", "rerun_of": "1"})["rerun_of"] == "1"
