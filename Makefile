@@ -1,4 +1,4 @@
-.PHONY: install lint test test-local env-up env-down env-status
+.PHONY: install lint test test-local env-up env-down env-status handout
 
 install:
 	uv sync --all-groups
@@ -26,3 +26,8 @@ env-down:
 
 env-status:
 	scripts/env_v2.sh --status
+
+# One-page A4 handout (CRIGAMO-140). Needs pandoc plus a PDF engine (xelatex or
+# weasyprint) and `qrencode`; fails with a clear message otherwise. Nothing is installed.
+handout:
+	scripts/build_handout.sh

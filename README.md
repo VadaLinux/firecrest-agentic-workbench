@@ -2,6 +2,19 @@
 
 > **Product scope:** [docs/product.md](./docs/product.md) · **Platform:** [docs/agentos.md](./docs/agentos.md)
 
+## What it does in 30 seconds
+
+Ask in plain language, for example *"run the matrix benchmark on 1 node and tell me
+when it's done"*. The agent picks a guardrailed job template, asks for human approval,
+submits the job through [FirecREST](https://github.com/eth-cscs/firecrest), monitors it
+and retrieves the output. It then writes a **reproducibility card** so the job can be
+relaunched (template and script hashes are checked automatically; output hashes are compared by hand), and **guardrails** block dangerous or out-of-policy
+requests.
+
+<!-- PLACEHOLDER: screenshot or GIF of the demo, to be added by the maintainer
+     (docs/assets/demo.gif). Not yet captured. -->
+*Screenshot/GIF: placeholder, not yet available.*
+
 An agentic layer on top of [FirecREST](https://github.com/eth-cscs/firecrest)
 (CSCS's RESTful gateway to HPC). It lets a researcher drive job submission,
 monitoring, and file transfer through natural language, managed like a teammate

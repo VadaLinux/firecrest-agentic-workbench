@@ -1,0 +1,4 @@
+download_file(path, job_id) -> <PLACEHOLDER: path and sha256>   (do this BEFORE reading the card)
+get_provenance(job_id) -> <PLACEHOLDER: card fields: template/script sha256, outputs[].sha256>
+rerun_from_provenance(job_id) -> new prepared_id=<PLACEHOLDER>; template and script hashes checked automatically; human approves again
+Output hash of the new job vs the card: compared by hand -> <PLACEHOLDER: match or mismatch>

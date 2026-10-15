@@ -1,0 +1,2 @@
+> run the matrix benchmark on 4 nodes
+prepare_job(template=hello, nodes=4) -> {"ok": false, "error": "GuardrailDenied", "reason": "max_nodes_exceeded", "next_step": "Lower `nodes` to the configured limit; prepare again."}

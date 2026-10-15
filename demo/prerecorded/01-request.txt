@@ -1,0 +1,4 @@
+> run the matrix benchmark on 1 node and tell me when it's done
+list_templates -> <PLACEHOLDER: real output of list_templates>
+prepare_job(template=matrix, nodes=1) -> prepared_id=<PLACEHOLDER: prepared_id>, summary=<PLACEHOLDER: summary>
+Terminal B (human): fcagent approve <PLACEHOLDER: prepared_id>   (human types yes)
