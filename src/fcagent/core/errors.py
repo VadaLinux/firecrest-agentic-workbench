@@ -26,6 +26,10 @@ NEXT_STEPS: dict[str, str] = {
     "max_nodes_exceeded": "Lower `nodes` to the configured limit; prepare again.",
     "max_time_exceeded": "Lower `time_minutes` to the configured limit; prepare again.",
     "partition_not_allowed": "Choose an allowed partition and prepare again.",
+    "unknown_system": (
+        "Use one of the allowed systems (see list_templates) or omit `system` "
+        "to use the default; then prepare again."
+    ),
     "working_directory_invalid": "Pass an absolute working_directory (starts with /).",
     "prepared_id_required": (
         "Call prepare_job first, wait for `fcagent approve <prepared_id>` by a "

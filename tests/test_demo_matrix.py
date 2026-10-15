@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-import yaml
 
 from fcagent.core.audit import AuditLog
 from fcagent.core.errors import GuardrailDenied
@@ -21,12 +20,7 @@ PARAMS = {
 
 
 def _service(tmp_path):
-    raw = yaml.safe_load((REPO / "config/limits.yaml").read_text())
-    limits = Limits(
-        max_nodes=raw["max_nodes"],
-        max_time_minutes=raw["max_time_minutes"],
-        allowed_partitions=tuple(raw["allowed_partitions"]),
-    )
+    limits = Limits.from_yaml(REPO / "config/limits.yaml")
     return JobService(
         template_directory=REPO / "templates",
         limits=limits,
