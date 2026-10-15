@@ -16,6 +16,7 @@ SCRIPT_PATH = os.path.abspath(
 
 class SharedState:
     recorded_headers: typing.ClassVar[list] = []
+    recorded_user_agents: typing.ClassVar[list] = []
 
 
 class MockServerRequestHandler(BaseHTTPRequestHandler):
@@ -24,6 +25,7 @@ class MockServerRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         SharedState.recorded_headers.append(list(self.headers.keys()))
+        SharedState.recorded_user_agents.append(self.headers.get("User-Agent"))
         if self.path == "/v1/models" or self.path == "/models":
             if self.server.scenario == "invalid_json":
                 self.send_response(200)
@@ -123,6 +125,26 @@ class TestOmnirouteCheck(unittest.TestCase):
             if "Authorization" in headers:
                 auth_found = True
         self.assertFalse(auth_found, "Authorization header found despite empty key")
+
+    def test_every_request_sends_an_explicit_user_agent(self):
+        SharedState.recorded_user_agents = []
+        self.server.scenario = "valid"
+        env = os.environ.copy()
+        env["OMNIROUTE_DISCOVERY_URL"] = f"http://127.0.0.1:{self.port}/v1"
+        env["OMNIROUTE_MODEL"] = "apertus-70b"
+        env["OMNIROUTE_API_KEY"] = "test-key"
+        proc = subprocess.run(
+            [sys.executable, SCRIPT_PATH],
+            env=env,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertGreaterEqual(len(SharedState.recorded_user_agents), 2)
+        for agent in SharedState.recorded_user_agents:
+            self.assertEqual(agent, "firecrest-workbench-check/1.0")
+            self.assertNotIn("Python-urllib", agent)
 
     def test_negative_missing_mandatory(self):
         env = os.environ.copy()
