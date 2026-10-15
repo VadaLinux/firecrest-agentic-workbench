@@ -168,3 +168,20 @@ def test_invalid_retention_days_stops(value):
 
 def test_retention_default():
     assert retention_days({}) == 90
+
+
+def test_cards_with_epoch_ended(tmp_path):
+    state = tmp_path / "state"
+    old = int((NOW - timedelta(days=200)).timestamp())
+    new = int((NOW - timedelta(days=5)).timestamp())
+    _job(state, "20", "COMPLETED", old)
+    _job(state, "21", "COMPLETED", new)
+    _job(state, "22", "FAILED", "garbage")
+    _job(state, "23", "FAILED", True)
+    report = run_retention(
+        state_dir=state, audit_path=tmp_path / "none", days=90, apply=True, now=NOW
+    )
+    assert report.cards_deleted == ["20"]
+    assert not (state / "jobs" / "20").exists()
+    assert (state / "jobs" / "21").exists()
+    assert report.kept_unparseable == ["jobs/22", "jobs/23"]

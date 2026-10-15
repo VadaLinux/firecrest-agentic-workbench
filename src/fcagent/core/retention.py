@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import math
 import os
 import shutil
 import stat
@@ -49,6 +50,16 @@ def retention_days(environ: dict[str, str] | None = None) -> int:
 
 
 def _parse_ts(value: Any) -> datetime | None:
+    """ISO-8601 string, or epoch seconds (int/float) as FirecREST v2 reports them."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        if not math.isfinite(value) or value < 0:
+            return None
+        try:
+            return datetime.fromtimestamp(value, UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
     if not isinstance(value, str):
         return None
     try:
@@ -131,11 +142,18 @@ def _clean_cards(jobs_dir: Path, cutoff: datetime, apply: bool, report: Report) 
         try:
             card = json.loads(card_path.read_text())
             state = card.get("state")
-            ended = _parse_ts((card.get("times") or {}).get("ended"))
+            raw_ended = (card.get("times") or {}).get("ended")
+            ended = _parse_ts(raw_ended)
         except (OSError, ValueError, AttributeError):
             report.kept_unparseable.append(f"jobs/{name}")
             continue
-        if state not in TERMINAL_STATES or ended is None or ended >= cutoff:
+        if state not in TERMINAL_STATES:
+            continue
+        if ended is None:
+            if raw_ended is not None:
+                report.kept_unparseable.append(f"jobs/{name}")
+            continue
+        if ended >= cutoff:
             continue
         report.cards_deleted.append(name)
         if apply:
