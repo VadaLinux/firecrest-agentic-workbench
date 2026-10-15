@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -29,6 +30,11 @@ class JobSubmit(BaseModel):
     job_file: str | None = None
     job_file_out: str | None = None
     job_file_err: str | None = None
+    #: "metadata" (read from the scheduler), "script" (derived from #SBATCH
+    #: directives of the submitted script) or None when no path is known.
+    paths_source: str | None = None
+    #: Why the paths are missing or derived. Never contains tokens or headers.
+    note: str | None = None
 
 
 class JobStatus(BaseModel):
@@ -118,6 +124,48 @@ def _find_job(records: list[dict[str, Any]], job_id: str) -> dict[str, Any]:
         if str(record.get("jobId")) == str(job_id):
             return record
     raise FirecRESTError("Job record not found")
+
+
+_SBATCH_OUT = {"--output": "out", "-o": "out", "--error": "err", "-e": "err"}
+
+
+def _sbatch_paths(script: str | None, working_directory: str, job_id: str) -> dict:
+    """Derive stdout/stderr paths from ``#SBATCH --output/--error`` directives.
+
+    Only ``%j`` (job id) is substituted. Any other Slurm filename pattern (``%x``,
+    ``%A``, ``%a``, ``%u``, ``%%``...) leaves that stream unresolved: a guessed
+    path is worse than ``None``. Relative paths are resolved against the working
+    directory. Returns ``{"out": str|None, "err": str|None, "unsupported": bool}``.
+    """
+    found: dict[str, str] = {}
+    for line in (script or "").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("#SBATCH"):
+            continue
+        try:
+            tokens = shlex.split(stripped[len("#SBATCH") :], comments=True)
+        except ValueError:
+            continue
+        i = 0
+        while i < len(tokens):
+            tok = tokens[i]
+            key, sep, value = tok.partition("=")
+            if key in _SBATCH_OUT and sep:
+                found[_SBATCH_OUT[key]] = value
+            elif tok in _SBATCH_OUT and i + 1 < len(tokens):
+                found[_SBATCH_OUT[tok]] = tokens[i + 1]
+                i += 1
+            i += 1
+    result: dict[str, Any] = {"out": None, "err": None, "unsupported": False}
+    for stream, raw in found.items():
+        path = raw.replace("%j", str(job_id))
+        if "%" in path or not raw:
+            result["unsupported"] = True
+            continue
+        if not path.startswith("/"):
+            path = f"{working_directory.rstrip('/')}/{path}"
+        result[stream] = path
+    return result
 
 
 def _http_status(exc: Exception) -> int | None:
@@ -253,15 +301,39 @@ class FirecRESTClientV2:
         job_id = str(response.get("jobid", response.get("jobId", "")))
         if not job_id:
             raise FirecRESTError("FirecREST accepted no job id")
+        note: str | None = None
         try:
             metadata = await self.get_job_metadata(job_id, system)
-        except FirecRESTError:
+        except FirecRESTError as exc:
             metadata = {}
+            reason = f"HTTP {exc.status}" if exc.status is not None else "error"
+            note = f"job_metadata unavailable ({reason}); output paths are not known."
+        out = metadata.get("standardOutput")
+        err = metadata.get("standardError")
+        source = "metadata" if (out or err) else None
+        if source is None:
+            derived = _sbatch_paths(script, working_directory, job_id)
+            out, err = derived["out"], derived["err"]
+            parts = [note] if note else []
+            if out or err:
+                source = "script"
+                parts.append(
+                    "Output paths derived from the #SBATCH directives of the "
+                    "submitted script, not reported by the scheduler."
+                )
+            if derived["unsupported"]:
+                parts.append(
+                    "A stream uses a Slurm filename pattern other than %j, so its "
+                    "path is not derived and stays null."
+                )
+            note = " ".join(parts) or None
         return JobSubmit(
             jobid=job_id,
             job_file=script_path,
-            job_file_out=metadata.get("standardOutput"),
-            job_file_err=metadata.get("standardError"),
+            job_file_out=out,
+            job_file_err=err,
+            paths_source=source,
+            note=note,
         )
 
     async def get_job_status(
