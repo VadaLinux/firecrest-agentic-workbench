@@ -25,8 +25,9 @@ component talks to the API.
 - **Guardrailed templates:** jobs are launched from vetted templates with enforced limits.
 - **Human approval** in a separate terminal (`fcagent approve`) before anything is submitted.
 - **Guardrail refusals:** dangerous or out-of-policy requests are blocked, and nothing is submitted.
-- **Reproducibility card:** inputs, template, parameters and output hashes are recorded;
-  a job can be relaunched from the card and its outputs verified by hash.
+- **Reproducibility card:** template, parameters, script hash and, after download, the
+  output hash are recorded. A relaunch from the card checks the template and script
+  hashes automatically; the new output hash is compared with the card by hand.
 
 ## Limits of the approval gate
 

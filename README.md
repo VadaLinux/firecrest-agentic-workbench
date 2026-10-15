@@ -8,7 +8,7 @@ Ask in plain language, for example *"run the matrix benchmark on 1 node and tell
 when it's done"*. The agent picks a guardrailed job template, asks for human approval,
 submits the job through [FirecREST](https://github.com/eth-cscs/firecrest), monitors it
 and retrieves the output. It then writes a **reproducibility card** so the job can be
-relaunched with hash verification, and **guardrails** block dangerous or out-of-policy
+relaunched (template and script hashes are checked automatically; output hashes are compared by hand), and **guardrails** block dangerous or out-of-policy
 requests.
 
 <!-- PLACEHOLDER: screenshot or GIF of the demo, to be added by the maintainer
