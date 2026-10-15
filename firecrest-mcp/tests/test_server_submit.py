@@ -14,7 +14,7 @@ import yaml
 from fcagent.core.approval import ApprovalStore, generate_keypair, load_private_key
 
 import server
-from client_v2 import FirecRESTClientV2
+from client_v2 import FirecRESTClientV2, JobStatus
 
 ROOT = Path(__file__).resolve().parents[2]
 PARAMS = {
@@ -68,7 +68,9 @@ async def _prepare(**over: Any) -> dict[str, Any]:
 
 
 async def test_submit_job_has_no_free_script_or_approved_by_argument() -> None:
-    names = inspect.signature(server.submit_job.fn if hasattr(server.submit_job, "fn") else server.submit_job).parameters
+    names = inspect.signature(
+        server.submit_job.fn if hasattr(server.submit_job, "fn") else server.submit_job
+    ).parameters
     assert "script" not in names and "approved_by" not in names
 
 
@@ -165,7 +167,9 @@ def _doc(fn: Any) -> str:
 def test_tool_descriptions_describe_the_approval_flow_not_free_scripts() -> None:
     submit, prepare = _doc(server.submit_job), _doc(server.prepare_job)
     for text in (submit, prepare, _doc(server.list_templates)):
-        assert not re.search(r"full script|always send|#SBATCH|complete batch", text, re.I)
+        assert not re.search(
+            r"full script|always send|#SBATCH|complete batch", text, re.I
+        )
     assert "prepared_id" in submit and "fcagent approve" in submit
     assert "list_templates" in submit and "prepare_job" in submit
     assert "prepared_id" in prepare and "fcagent approve" in prepare
@@ -289,7 +293,9 @@ async def test_get_server_version_never_raises_or_returns_non_strings(
             raise RuntimeError("boom")
 
     assert await _real_client(Broken(), tmp_path).get_server_version() is None
-    assert await _real_client(PyFirecrestLike(), tmp_path).get_server_version() == "2.6.1"
+    assert (
+        await _real_client(PyFirecrestLike(), tmp_path).get_server_version() == "2.6.1"
+    )
 
     class Weird:
         server_version = 123
@@ -361,3 +367,42 @@ async def test_slow_server_version_times_out_but_submit_reports_the_job(
     card = (await server.get_provenance("99"))["provenance"]
     assert card["versions"]["firecrest_server"] is None
     assert card["trace"]["x_correlation_id"] == "submit-cid"
+
+
+async def test_requested_job_name_and_allocation_note(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Client(server.FirecRESTClientV2):  # type: ignore[misc]
+        def __init__(self) -> None:  # no network
+            pass
+
+        async def get_job_status(self, job_id, system=None, time_window=None):
+            return JobStatus(jobid=job_id, name="allocation", state="COMPLETED")
+
+    async def fake_client():
+        return Client()
+
+    monkeypatch.setattr(server, "get_client", fake_client)
+    monkeypatch.setattr(server, "_requested_job_name", lambda _id: "demo-hello")
+    out = await server.get_job_status("6")
+    assert out["job"]["name"] == "allocation"
+    assert "not the name requested" in out["note"]
+    assert out["requested_job_name"] == "demo-hello"
+
+
+async def test_no_allocation_note_for_a_real_name(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Client(server.FirecRESTClientV2):  # type: ignore[misc]
+        def __init__(self) -> None:
+            pass
+
+        async def get_job_status(self, job_id, system=None, time_window=None):
+            return JobStatus(jobid=job_id, name="x", state="COMPLETED")
+
+    async def fake_client():
+        return Client()
+
+    monkeypatch.setattr(server, "get_client", fake_client)
+    out = await server.get_job_status("6")
+    assert "note" not in out and "requested_job_name" not in out

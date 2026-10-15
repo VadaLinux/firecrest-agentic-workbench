@@ -174,3 +174,147 @@ async def test_get_job_status_forwards_time_window_to_job_info(
     assert "time_window" in kwargs
     assert kwargs["time_window"] == "7d"
     assert kwargs == {"time_window": "7d"}
+
+
+class _Resp:
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+
+
+class _HttpError(Exception):
+    def __init__(self, status_code: int) -> None:
+        self.responses = [_Resp(status_code)]
+
+
+class _NoMetadata(FakeFirecrest):
+    def __init__(self, status_code: int) -> None:
+        super().__init__()
+        self.status_code = status_code
+
+    def job_metadata(self, *args: Any) -> list[dict[str, str]]:
+        self._call("job_metadata", *args)
+        raise _HttpError(self.status_code)
+
+
+def _client_with(tmp_path, fake: FakeFirecrest) -> f7t2.FirecRESTClientV2:
+    return f7t2.FirecRESTClientV2(config(tmp_path), factory=lambda _: fake)
+
+
+async def _submit(client: f7t2.FirecRESTClientV2, script: str) -> f7t2.JobSubmit:
+    return await client.submit_job(script, working_directory="/home/demo")
+
+
+async def test_submit_501_gives_null_paths_and_a_note_without_retry(tmp_path) -> None:
+    fake = _NoMetadata(501)
+    result = await _submit(_client_with(tmp_path, fake), "#!/bin/bash\necho hi\n")
+    assert result.job_file_out is None and result.job_file_err is None
+    assert result.paths_source is None
+    assert "HTTP 501" in (result.note or "")
+    assert [c[0] for c in fake.calls].count("job_metadata") == 1  # no retry on 501
+
+
+async def test_submit_transient_error_also_notes_status_and_does_not_retry(
+    tmp_path,
+) -> None:
+    fake = _NoMetadata(502)
+    result = await _submit(_client_with(tmp_path, fake), "#!/bin/bash\n")
+    assert "HTTP 502" in (result.note or "")
+    assert [c[0] for c in fake.calls].count("job_metadata") == 1
+
+
+async def test_submit_note_contains_no_secret_or_url(tmp_path) -> None:
+    fake = _NoMetadata(501)
+    result = await _submit(_client_with(tmp_path, fake), "#!/bin/bash\n")
+    text = result.note or ""
+    assert "fictional-secret" not in text and "://" not in text
+
+
+async def test_submit_derives_paths_from_sbatch_with_only_percent_j(tmp_path) -> None:
+    script = (
+        "#!/bin/bash\n#SBATCH --output=logs/out-%j.txt\n#SBATCH -e /abs/err-%j.txt\n"
+    )
+    result = await _submit(_client_with(tmp_path, _NoMetadata(501)), script)
+    assert result.job_file_out == "/home/demo/logs/out-7.txt"
+    assert result.job_file_err == "/abs/err-7.txt"
+    assert result.paths_source == "script"
+    assert "derived" in (result.note or "")
+
+
+@pytest.mark.parametrize(
+    "pattern", ["%x-%j.out", "%A.out", "%a.out", "%u.out", "100%%.out"]
+)
+async def test_submit_unsupported_slurm_pattern_leaves_path_null(
+    tmp_path, pattern: str
+) -> None:
+    script = f"#!/bin/bash\n#SBATCH --output={pattern}\n"
+    result = await _submit(_client_with(tmp_path, _NoMetadata(501)), script)
+    assert result.job_file_out is None and result.paths_source is None
+    assert "pattern" in (result.note or "")
+
+
+async def test_submit_script_without_directives_never_guesses_slurm_default(
+    tmp_path,
+) -> None:
+    result = await _submit(_client_with(tmp_path, _NoMetadata(501)), "#!/bin/bash\n")
+    assert result.job_file_out is None
+    assert "slurm-" not in (result.note or "")
+
+
+async def test_scheduler_metadata_wins_over_script(tmp_path, fake) -> None:
+    script = "#!/bin/bash\n#SBATCH --output=other-%j.out\n"
+    result = await _submit(_client_with(tmp_path, fake), script)
+    assert result.job_file_out == "/out/7.out" and result.paths_source == "metadata"
+    assert result.note is None
+
+
+async def test_output_reads_never_call_view_and_head_has_explicit_size(
+    tmp_path, fake
+) -> None:
+    class Spy(FakeFirecrest):
+        def view(self, *args: Any, **kwargs: Any) -> str:
+            raise AssertionError("view() must never be called (upstream #247)")
+
+        def stat(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            self._call("stat", *args)
+            return {"size": 3}
+
+        def download(self, *args: Any, **kwargs: Any) -> None:
+            self._call("download", *args)
+            open(args[2], "wb").write(b"abc")
+
+    spy = Spy()
+    client = _client_with(tmp_path, spy)
+    await client.get_job_log("7")
+    assert await client.download_file("/out/7.out") == b"abc"
+    names = [c[0] for c in spy.calls]
+    assert "view" not in names and "download" in names
+    for call in spy.calls:
+        if call[0] == "head":
+            assert call[2].get("num_bytes") == f7t2.DEFAULT_OUTPUT_BYTES
+
+
+async def test_mixed_supported_and_unsupported_stream_keeps_both_messages(
+    tmp_path,
+) -> None:
+    script = "#!/bin/bash\n#SBATCH --output=ok-%j.out\n#SBATCH --error=%x.err\n"
+    result = await _submit(_client_with(tmp_path, _NoMetadata(501)), script)
+    assert result.job_file_out == "/home/demo/ok-7.out"
+    assert result.job_file_err is None and result.paths_source == "script"
+    note = result.note or ""
+    assert "HTTP 501" in note and "derived" in note and "pattern" in note
+
+
+async def test_note_never_repeats_exception_text_with_url_or_token(tmp_path) -> None:
+    secret = "Bearer eyJfictional.token https://user:pw@auth.test/token"
+
+    class Boom(FakeFirecrest):
+        def job_metadata(self, *args: Any) -> list[dict[str, str]]:
+            exc = _HttpError(501)
+            exc.args = (secret,)
+            raise exc
+
+    result = await _submit(_client_with(tmp_path, Boom()), "#!/bin/bash\n")
+    note = result.note or ""
+    for forbidden in ("Bearer", "eyJ", "://", "pw@", "auth.test"):
+        assert forbidden not in note
+    assert "HTTP 501" in note

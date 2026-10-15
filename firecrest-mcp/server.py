@@ -195,6 +195,16 @@ async def prepare_job(
         return _fail(exc)
 
 
+def _requested_job_name(job_id: str) -> str | None:
+    """The `job_name` parameter recorded in the card (what was asked, not reported)."""
+    try:
+        card = ProvenanceStore(CoreSettings.from_env().state_dir).read(job_id)
+        name = card.get("parameters", {}).get("job_name")
+        return name if isinstance(name, str) else None
+    except Exception:  # noqa: BLE001 - unmanaged job or unreadable card
+        return None
+
+
 def _update_card_status(job_id: str, job: dict[str, Any]) -> None:
     """Refresh the card of a job this server submitted; unmanaged jobs are ignored."""
     try:
@@ -292,6 +302,10 @@ async def _submit_prepared(
         "provenance": provenance,
         "next_step": f"Call get_job_status with job_id={result.jobid} to watch it.",
     }
+    if getattr(result, "paths_source", None):
+        response["paths_source"] = result.paths_source
+    if getattr(result, "note", None):
+        response["note"] = result.note
     if warnings:
         response["warnings"] = warnings
         response["provenance_error"] = "provenance_error" in warnings
@@ -312,8 +326,13 @@ async def submit_job(prepared_id: str, actor: str = "mcp") -> dict[str, Any]:
     the result explains why in `reason` and what to do in `next_step`: follow it
     (usually: ask the user to approve, or prepare again). Do not retry in a loop.
 
-    On success you get the job id and where the output will appear, and a
-    reproducibility card is stored (see get_provenance).
+    On success you get the job id and a reproducibility card is stored (see
+    get_provenance). `stdout_path`/`stderr_path` are the scheduler's paths, or
+    `null` when it does not report them; then `note` says why. If the approved
+    template itself declares output files with only `%j` as pattern, the paths are
+    derived from it and marked `paths_source: "script"` (derived, not reported by
+    the scheduler); any other Slurm pattern leaves the path `null`. To read the
+    output use get_job_log(job_id) rather than guessing a path.
     """
     try:
         settings, service = _core()
@@ -422,6 +441,10 @@ async def get_job_status(job_id: str) -> dict[str, Any]:
     infer job state from anything else: polling a job too early raises an error
     saying no record exists yet rather than returning a misread status.
 
+    If the scheduler reports the name `allocation`, `note` says it is not the
+    requested name and, for jobs submitted here, `requested_job_name` gives the
+    name that was asked for (labelled as requested, not as reported).
+
     If the result carries a `warning`, the accounting record was not yet
     complete when it was read — re-query before telling the user anything about
     the job's name or partition.
@@ -437,6 +460,15 @@ async def get_job_status(job_id: str) -> dict[str, Any]:
         # partition — which is replaced by the real values once the job is
         # allocated. v2 has no such indirection (one call, real state inline,
         # docs/hot-cache-v2.md §0), so this caveat does not apply there.
+        if job.get("name") == "allocation":
+            result["note"] = (
+                "The scheduler reports the job name as `allocation` (observed with "
+                "the REST scheduler connection on FirecREST 2.6.1); it is not the "
+                "name requested in the template. Do not quote it as the job name."
+            )
+            requested = _requested_job_name(job_id)
+            if requested:
+                result["requested_job_name"] = requested
         if isinstance(client, FirecRESTClient) and not job.get("partition"):
             result["warning"] = (
                 "This accounting record is a placeholder, not the job's real "
