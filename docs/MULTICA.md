@@ -157,8 +157,9 @@ Why this is the strongest single argument in the project:
   retrieval, open model, all auditable. The alternative is routing researcher queries
   through an opaque third-party model, which is the thing CSCS's inference service exists to
   avoid.
-- **EU AI Act alignment stops being a slogan** and becomes a deployment fact, because the
-  model is the one CSCS positions for exactly that.
+- **The EU AI Act story rests on the model, not on a slogan**: Apertus is described by CSCS
+  as designed with the AI Act in mind. We make no compliance claim of our own (see
+  [trust-and-compliance.md](trust-and-compliance.md)).
 - **It fixes a measured problem.** On CPU, one answered question took 45 seconds and
   ingesting 170 KB took thirteen minutes — we measured both. The same stack against an
   inference endpoint turns that into seconds, which is the difference between a system that

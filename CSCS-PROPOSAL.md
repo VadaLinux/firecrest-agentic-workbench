@@ -25,7 +25,7 @@ One deployment detail, and it's the one we think matters most to you: **inferenc
 This means:
 
 - No new infrastructure for CSCS to stand up — the proposal consumes a service you've already launched.
-- A governance story consistent with what Apertus is for: EU AI Act-aligned, fully open, auditable — rather than routing researcher queries through an opaque third-party model.
+- A governance story consistent with what Apertus is for: fully open, auditable, and described by CSCS as designed with the EU AI Act in mind — rather than routing researcher queries through an opaque third-party model.
 - Everything we demo live is architecturally identical to what we'd deploy — not a "trust us, production is different" hand-wave.
 
 ## Why this fits the hackathon's ask specifically

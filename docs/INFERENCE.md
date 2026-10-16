@@ -68,7 +68,7 @@ config line is the claim that fails in front of the person who built the endpoin
 
 ## Why this matters for the pitch, specifically
 
-- **Sovereignty / EU AI Act alignment**: Apertus is fully open (weights, training data, alignment documented) and explicitly positioned by CSCS as compliant with the EU AI Act. That's a stronger governance story than "we called OpenAI's API."
+- **Sovereignty / EU AI Act alignment**: Apertus is fully open (weights, training data, alignment documented) and described by CSCS as designed with the EU AI Act in mind; we make no compliance claim of our own (see [trust-and-compliance.md](trust-and-compliance.md)). That's a stronger governance story than "we called OpenAI's API."
 - **No inference infrastructure to operate**: the proposal doesn't ask CSCS to stand up anything new — it consumes a service they've already launched.
 - **Same tokens, no re-training the agent**: because DocMind and Hermes both speak OpenAI-compatible chat completions, nothing about the MCP tools, the Multica orchestration, or the Telegram channel changes when we point at Apertus instead of Ollama. The demo we show live is architecturally identical to the deployment we're proposing — we are not hand-waving a "in production this would be different."
 
