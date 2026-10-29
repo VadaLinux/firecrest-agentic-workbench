@@ -74,7 +74,11 @@ config line is the claim that fails in front of the person who built the endpoin
 
 ## What we will NOT claim in the demo
 
-We will demo against the local Ollama backend on the laptop (no CSCS inference credentials needed for the hackathon itself) and state clearly, live, that the production version swaps three environment variables to run on CSCS's own Apertus endpoint instead — not claim we've already tested against `api.inference.cscs.ch` unless we've actually requested and verified access beforehand.
+The stage demonstration uses the MCP service on the VPS. The repository verifies only that
+`demo/run-demo.sh check` probes the configured primary `OMNIROUTE_MODEL` (and optional
+fallback) through `scripts/omniroute_check.py`; the model/backend selection itself stays
+in gitignored configuration. We will state that limited, reproducible fact and not claim
+a specific the VPS inference backend or that the CSCS endpoint has been exercised.
 
 ## OmniRoute Local Proxy Setup
 

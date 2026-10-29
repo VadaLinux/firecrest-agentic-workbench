@@ -1,13 +1,15 @@
 # Remote deployment: FirecREST v2 and the MCP server behind Cloudflare Access
 
 This document describes how the FirecREST v2 demo stack and the FirecREST MCP server
-run on a single Linux VPS, and how the MCP endpoint is published on the internet
-behind Cloudflare Access. It is the reference for installing, operating, verifying and
-removing that deployment.
+run on a Linux VPS, and how the MCP endpoint is published on the internet behind
+Cloudflare Access. It is the reference for operating, verifying and rehearsing that
+deployment; values that identify the actual host or accounts remain placeholders.
 
 It complements [`local-env.md`](./local-env.md), which covers the same components on a
-developer workstation. The deployment described here was installed and verified on
-13 October 2026 (FirecREST 2.6.1, `pyfirecrest` 3.10.0, `mcp` SDK 2.x).
+developer workstation. The VPS runs FirecREST **2.6.1**, `pyfirecrest` 3.10.0 and the
+`mcp` SDK 2.x. Keep this deployed stack pinned: do not run `docker compose pull` or
+build it during demo preparation, because upstream has replaced the deprecated MinIO
+component with RustFS.
 
 Values that identify a specific account are written as placeholders:
 
@@ -311,29 +313,32 @@ claude            # then run /mcp, select firecrest-v2, choose Authenticate
 
 Cloudflare Access answers unauthenticated MCP requests with
 `WWW-Authenticate: Cloudflare-Access resource_metadata=...`, which lets an MCP client
-discover the authorisation server and open a browser for the Access login. After login,
-`/mcp` lists six tools:
+discover the authorisation server and open a browser for the Access login.
 
-> **Status (14 October 2026):** the `WWW-Authenticate` header and the browser login are
-> verified; the full interactive flow from Claude Code (`/mcp` → *Authenticate*) has not
-> yet been tested end to end. Run check 8 of the [verification checklist](#7-verification-checklist)
-> from the demo laptop before relying on it, and keep a service token (below) as a fallback.
+> **Status (29 October 2026):** the `WWW-Authenticate` header and browser login are
+> verified. The full interactive Claude Code path (`/mcp` → *Authenticate* → tool call)
+> is **not verified end to end** in this repository; complete verification checklist
+> check 8 from the demo laptop before relying on it, and retain the service-token
+> fallback below.
 
-| Tool | Purpose |
-|---|---|
-| `submit_job` | submit an approved template with declared parameters |
-| `get_job_status` | job state and exit code |
-| `get_job_log` | job standard output |
-| `list_files` | list a remote directory |
-| `download_file` | fetch a remote file (saved under `downloads/`) |
-| `cancel_job` | cancel a job |
+The job workflow exposed by `server.py` is deliberately approval-gated:
 
-Example request for the agent: *"Submit the `hello` template on `cluster-slurm-api` with
-1 node, 5 minutes, partition `part01`, job name `demo`, message `hello`, working directory
-`/home/fireuser`, approved by `operator-ok`; then show its status and output."*
+| Step | Tool or action | Result |
+|---|---|---|
+| 1 | `list_templates` | lists approved templates and typed parameters |
+| 2 | `prepare_job` | returns a `prepared_id` and summary; submits nothing |
+| 3 | human `fcagent approve <prepared_id>` or the VPS `approva` | reviews and approves the prepared job |
+| 4 | `submit_job(prepared_id)` | submits that exact, once-approved job |
+| 5 | `get_job_status`, then `download_file(path, job_id)` | reports completion; retrieves output and records its hash |
+| 6 | `get_provenance(job_id)` or `rerun_from_provenance(job_id)` | reads the reproducibility card, or verifies/re-renders it before another approval |
 
-`approved_by` must match `^[A-Za-z0-9_.-]+$`; spaces or punctuation are rejected with
-`approved_by_required`.
+Example request for the agent: *"List the approved templates, prepare the `matrix`
+template for 1 node, show me the summary for human approval, then—only after I approve
+it—submit the prepared job, report its status, download its output and show the
+provenance card."*
+
+`submit_job` accepts only `prepared_id`; it cannot receive a free-form script or new
+parameters.
 
 ### Headless agents
 
@@ -352,15 +357,40 @@ docker ps --format '{{.Names}}\t{{.Status}}'
 ss -Htlnp | grep -E ':(8000|8765|18080)\b'
 ```
 
+### Demo rehearsal and fallback
+
+Run the pre-demo checks on the VPS from the repository root:
+
+```bash
+demo/run-demo.sh check  # read-only: services, public endpoint and configured model
+demo/run-demo.sh reset  # clears only approved demo output/state directories
+```
+
+`reset` is safe only when `DEMO_STATE_DIR` points to the dedicated rehearsal directory
+(e.g. `/var/lib/fcagent-demo`) containing `.fcagent-demo-state`. The MCP service must use
+the same directory through the installed
+`systemd/firecrest-mcp-v2.demo-state.conf.example` drop-in. The drop-in keeps rehearsal
+approval state separate from `/var/lib/fcagent`; remove it, run `systemctl daemon-reload`
+and restart `firecrest-mcp-v2` after rehearsal to return to production state. The
+approver must use that same state directory, either via
+`FCAGENT_STATE_DIR=/var/lib/fcagent-demo fcagent approve <prepared_id>` or the the VPS
+`approva <prepared_id>` shortcut.
+
+If the live path is unavailable, run `demo/replay.sh`. It is offline and prints only
+pre-recorded output; its banner states that it is not live, which must be said on stage.
+
 ### Logs
 
 ```bash
 journalctl -u firecrest-mcp-v2 -f              # MCP server (requests, errors)
 journalctl -u firecrest-demo-v2 -o cat          # bring-up of the v2 stack
 docker logs --tail 100 firecrest-v2-firecrest-1 # FirecREST gateway
-tail -f <repo>/firecrest-mcp/logs/audit.jsonl   # job submissions: submitted / denied, with reason
+tail -f <repo>/firecrest-mcp/logs/audit.jsonl   # approvals, submissions and denials
 sudo journalctl -u cloudflared -f               # tunnel, configuration versions
 ```
+
+`audit.jsonl` remains under `<repo>/firecrest-mcp/logs/`, outside the rehearsal state
+directory; do not reset or redirect it.
 
 ### Restart
 
@@ -382,12 +412,18 @@ sudo systemctl start firecrest-mcp-v2
 
 ### Update the deployed code
 
+The deployed v2 stack is pinned to FirecREST 2.6.1 for the demo. Do not run `docker
+compose pull` or build it during rehearsal: upstream changes include the replacement of
+deprecated MinIO with RustFS. For every direct FirecREST `ops/view` call, pass `size`
+until 2.6.2 is released (the upstream fix is PR #247); for example,
+`ops/view?path=<path>&size=65536`.
+
 ```bash
 cd <repo>
 git pull --ff-only
-git log --oneline -1                            # record the new commit
-uv pip install --python firecrest-mcp/.venv/bin/python -r firecrest-mcp/requirements.txt
-sudo systemctl restart firecrest-mcp-v2
+ git log --oneline -1                            # record the new commit
+ uv pip install --python firecrest-mcp/.venv/bin/python -r firecrest-mcp/requirements.txt
+ sudo systemctl restart firecrest-mcp-v2
 ```
 
 If a unit file changed in the repository, reinstall it with `install` and run
@@ -467,4 +503,5 @@ by the update procedure in section 6.
 | 2026-10-13 | `workbench-up.sh --only-v2` and `firecrest-demo-v2.service` | PR #34 |
 | 2026-10-13 | `firecrest-mcp-v2.service` (loopback bind, hardening) and `FIRECREST_MCP_PUBLIC_HOST` allowlist | PR #35 |
 | 2026-10-13 | `.env` loaded before the allowlist is built (fix: public host was rejected with 421) | PR #36 |
+| 2026-10-29 | the VPS operations and demo rehearsal runbook: approval-gated MCP flow, isolated demo state, replay/audit guidance, and 2.6.1 upstream cautions | CRIGAMO-306 |
 | 2026-10-13 | Cloudflare Access application, tunnel route with JWT validation, external verification | this document |
