@@ -333,3 +333,233 @@ def test_shipped_templates_declare_output_paths_with_only_percent_j(
     assert derived["out"] == "/home/demo/slurm-42.out"
     assert derived["err"] == "/home/demo/slurm-42.err"
     assert derived["unsupported"] is False
+
+
+# --------------------------------------------------------------------------
+# Production Alps (FirecREST 2.6.1, system daint), validated 2026-11-03.
+# Shapes below mirror what that run returned; see docs/hot-cache-v2.md §8.
+# --------------------------------------------------------------------------
+
+ALPS_ACCOUNT = "f7t-hack-course2026-cscs"
+
+
+def _alps_config(tmp_path, **over: Any) -> f7t2.FirecRESTConfigV2:
+    values: dict[str, Any] = {
+        "base_url": "https://api.svc.cscs.ch/hpc/firecrest/v2",
+        "token_url": "https://auth.test/token",
+        "client_id": "test-client",
+        "client_secret": "fictional-secret-must-never-appear",
+        "system": "daint",
+        "log_dir": tmp_path / "logs",
+    }
+    values.update(over)
+    return f7t2.FirecRESTConfigV2(**values)
+
+
+class _Userinfo(FakeFirecrest):
+    def __init__(self, accounts: Any) -> None:
+        super().__init__()
+        self.accounts = accounts
+
+    def userinfo(self, *args: Any) -> dict[str, Any]:
+        self._call("userinfo", *args)
+        info: dict[str, Any] = {
+            "user": {"id": "1000", "name": "course_941716d1"},
+            "groups": [{"id": "1000", "name": ALPS_ACCOUNT, "default": True}],
+        }
+        if self.accounts is not None:
+            info["accounts"] = self.accounts
+        return info
+
+
+def test_account_is_read_from_env(monkeypatch, tmp_path) -> None:
+    for name, value in {
+        "FIRECREST_V2_BASE_URL": "https://firecrest.test",
+        "FIRECREST_V2_TOKEN_URL": "https://auth.test/token",
+        "FIRECREST_V2_CLIENT_ID": "id",
+        "FIRECREST_V2_CLIENT_SECRET": "s",
+        "FIRECREST_V2_SYSTEM": "daint",
+        "FIRECREST_V2_ACCOUNT": ALPS_ACCOUNT,
+    }.items():
+        monkeypatch.setenv(name, value)
+    cfg = f7t2.FirecRESTConfigV2.from_env(tmp_path / "missing.env")
+    assert cfg.account == ALPS_ACCOUNT
+    monkeypatch.delenv("FIRECREST_V2_ACCOUNT")
+    assert f7t2.FirecRESTConfigV2.from_env(tmp_path / "missing.env").account is None
+
+
+async def test_submit_uses_configured_account_and_explicit_one_wins(tmp_path) -> None:
+    fake = FakeFirecrest()
+    client = f7t2.FirecRESTClientV2(
+        _alps_config(tmp_path, account=ALPS_ACCOUNT), factory=lambda _: fake
+    )
+    await client.submit_job("#!/bin/bash\n", working_directory="/users/u")
+    await client.submit_job("#!/bin/bash\n", working_directory="/users/u", account="p1")
+    accounts = [c[2]["account"] for c in fake.calls if c[0] == "submit"]
+    assert accounts == [ALPS_ACCOUNT, "p1"]
+
+
+async def test_resolve_account_prefers_config_without_a_remote_call(tmp_path) -> None:
+    fake = _Userinfo([])
+    client = f7t2.FirecRESTClientV2(
+        _alps_config(tmp_path, account="from-env"), factory=lambda _: fake
+    )
+    assert await client.resolve_account() == "from-env"
+    assert not fake.calls
+
+
+@pytest.mark.parametrize(
+    ("accounts", "expected"),
+    [
+        # root is Slurm's cluster association; Alps rejects it as a project.
+        (
+            [
+                {"name": "root", "default": True},
+                {"name": ALPS_ACCOUNT, "default": False},
+            ],
+            ALPS_ACCOUNT,
+        ),
+        ([{"name": ALPS_ACCOUNT, "default": True}], ALPS_ACCOUNT),
+        ([{"name": "p1", "default": False}, {"name": "p2", "default": True}], "p2"),
+        # Ambiguous or empty: never guess whom to bill.
+        ([{"name": "p1", "default": False}, {"name": "p2", "default": False}], None),
+        ([{"name": "root", "default": True}], None),
+        ([], None),
+        (None, None),  # FirecREST < 2.6 has no `accounts` field
+    ],
+)
+async def test_resolve_account_from_userinfo(tmp_path, accounts, expected) -> None:
+    fake = _Userinfo(accounts)
+    client = f7t2.FirecRESTClientV2(_alps_config(tmp_path), factory=lambda _: fake)
+    client.last_trace = {"x_correlation_id": "submit-cid"}
+    assert await client.resolve_account() == expected
+    assert fake.calls == [("userinfo", ("daint",), {})]
+    assert client.last_trace == {"x_correlation_id": "submit-cid"}
+
+
+async def test_resolve_account_failure_is_none_not_an_error(tmp_path) -> None:
+    class NoSacctmgr(FakeFirecrest):
+        def userinfo(self, *_: Any) -> dict[str, Any]:
+            raise _HttpError(500)
+
+    client = f7t2.FirecRESTClientV2(
+        _alps_config(tmp_path), factory=lambda _: NoSacctmgr()
+    )
+    assert await client.resolve_account() is None
+
+
+class _JsonResp:
+    def __init__(self, status_code: int, body: Any) -> None:
+        self.status_code = status_code
+        self._body = body
+
+    def json(self) -> Any:
+        return self._body
+
+
+class _EnvelopeError(Exception):
+    def __init__(self, status_code: int, message: str) -> None:
+        self.responses = [
+            _JsonResp(status_code, {"errorType": "error", "message": message})
+        ]
+
+
+async def test_missing_account_500_on_alps_gets_an_actionable_hint(tmp_path) -> None:
+    message = (
+        "Unexpected Slurm command response. exit_status:1 std_err:sbatch: error: "
+        "you must specify a project account (course_941716d1)"
+    )
+
+    class Alps(FakeFirecrest):
+        def submit(self, *_: Any, **__: Any) -> dict[str, str]:
+            raise _EnvelopeError(500, message)
+
+    client = f7t2.FirecRESTClientV2(_alps_config(tmp_path), factory=lambda _: Alps())
+    with pytest.raises(f7t2.FirecRESTError) as info:
+        await client.submit_job("#!/bin/bash\n", working_directory="/users/u")
+    assert info.value.status == 500
+    assert "FIRECREST_V2_ACCOUNT" in str(info.value)
+    assert "course_941716d1" not in str(info.value)  # body is matched, never echoed
+
+
+async def test_other_500_on_submit_gets_no_account_hint(tmp_path) -> None:
+    class Broken(FakeFirecrest):
+        def submit(self, *_: Any, **__: Any) -> dict[str, str]:
+            raise _EnvelopeError(500, "Unexpected Slurm command response")
+
+    client = f7t2.FirecRESTClientV2(_alps_config(tmp_path), factory=lambda _: Broken())
+    with pytest.raises(f7t2.FirecRESTError) as info:
+        await client.submit_job("#!/bin/bash\n", working_directory="/users/u")
+    assert "FIRECREST_V2_ACCOUNT" not in str(info.value)
+
+
+class _AlpsCompleted(FakeFirecrest):
+    """A finished job on Alps: /metadata is 404, /jobs/{id} still answers."""
+
+    def __init__(self, files: dict[str, str]) -> None:
+        super().__init__()
+        self.files = files
+
+    def job_metadata(self, *args: Any) -> list[dict[str, str]]:
+        self._call("job_metadata", *args)
+        raise _HttpError(404)
+
+    def job_info(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        self._call("job_info", *args, **kwargs)
+        return [
+            {
+                "jobId": "5245627",
+                "status": {"state": "COMPLETED", "exitCode": 0},
+                "nodes": "nid006554",
+                "partition": "debug",
+                "workingDirectory": "/users/course_941716d1/",
+                "time": {"elapsed": 14},
+            }
+        ]
+
+    def head(self, system: str, path: str, **kwargs: Any) -> dict[str, str]:
+        self._call("head", system, path, **kwargs)
+        if path not in self.files:
+            raise _HttpError(404)
+        return {"content": self.files[path]}
+
+
+async def test_completed_alps_job_state_comes_from_job_info_by_id(tmp_path) -> None:
+    fake = _AlpsCompleted({})
+    client = f7t2.FirecRESTClientV2(_alps_config(tmp_path), factory=lambda _: fake)
+    status = await client.get_job_status("5245627")
+    assert (status.state, status.exit_code, status.nodes) == (
+        "COMPLETED",
+        0,
+        "nid006554",
+    )
+    assert fake.calls == [("job_info", ("daint", "5245627"), {})]
+
+
+async def test_alps_metadata_404_falls_back_to_slurm_out_and_err(tmp_path) -> None:
+    base = "/users/course_941716d1/slurm-5245627"
+    fake = _AlpsCompleted(
+        {f"{base}.out": "hello from nid006554\ndone\n", f"{base}.err": ""}
+    )
+    client = f7t2.FirecRESTClientV2(_alps_config(tmp_path), factory=lambda _: fake)
+    log = await client.get_job_log("5245627")
+    assert log.stdout == "hello from nid006554\ndone\n"
+    assert log.stderr == ""
+    heads = [c[1][1] for c in fake.calls if c[0] == "head"]
+    assert heads == [f"{base}.out", f"{base}.err"]  # no double slash
+
+
+async def test_alps_fallback_skips_a_missing_derived_stderr(tmp_path) -> None:
+    base = "/users/course_941716d1/slurm-5245627"
+    fake = _AlpsCompleted({f"{base}.out": "done\n"})
+    client = f7t2.FirecRESTClientV2(_alps_config(tmp_path), factory=lambda _: fake)
+    log = await client.get_job_log("5245627")
+    assert log.stdout == "done\n" and log.stderr is None
+
+
+async def test_alps_fallback_still_fails_when_stdout_is_missing(tmp_path) -> None:
+    client = f7t2.FirecRESTClientV2(
+        _alps_config(tmp_path), factory=lambda _: _AlpsCompleted({})
+    )
+    with pytest.raises(f7t2.FirecRESTError):
+        await client.get_job_log("5245627")

@@ -1,0 +1,19 @@
+# Limits for production Alps (CSCS), system daint, through FirecREST v2.
+# Select with FCAGENT_LIMITS_FILE=config/limits.alps.yaml; the default
+# config/limits.yaml stays the local compose demo.
+#
+# Values come from the live validation run of 2026-11-03
+# (docs/hot-cache-v2.md §8): `debug` was UP with 24 nodes, `normal`/`low`
+# with 922 each. Only `debug` is allowed: pilots are short and must not
+# compete with production work. Keep these tighter than the template bounds.
+max_nodes: 2
+max_time_minutes: 30
+allowed_partitions:
+  - debug
+allowed_systems:
+  - daint
+# Home directories live under /users/<user>, personal scratch under
+# /capstor/scratch/cscs/<user>. Narrow to your own user if you can.
+allowed_working_directories:
+  - /users
+  - /capstor/scratch/cscs

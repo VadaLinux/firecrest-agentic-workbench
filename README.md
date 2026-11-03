@@ -196,6 +196,7 @@ human approval gates for `sudo` and public exposure, and verifies every phase.
 | 06 | Multica orchestration | done and verified live | [`MULTICA.md`](./docs/MULTICA.md) |
 | 07 | Telegram channel | not started — requires a human to provide a BotFather token and bind the workspace channel | — |
 | 08 | Failure scenario | partial delivery — recorded directly against FirecREST; it still needs a Hermes re-run | [`failure-scenario-transcript.md`](./docs/failure-scenario-transcript.md) |
+| — | **Production Alps (FirecREST 2.6.1, `daint`)** | auth → submit → poll → output verified live on 2026-11-03 via direct API calls; MCP path on Alps not yet run | [`hot-cache-v2.md` §8](./docs/hot-cache-v2.md#8-production-alps--first-live-validation-2026-11-03) |
 
 The MetaMCP endpoint currently aggregates six tools: five from `firecrest-mcp`
 and `docmind__query_docs` from the local RAG corpus. Resume from

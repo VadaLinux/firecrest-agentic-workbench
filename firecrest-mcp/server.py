@@ -247,6 +247,9 @@ async def prepare_job(
     list_templates (`working_directory.default`); if that is `null` you must pass
     one. It must be a normalized absolute path under an allowed directory (also
     listed there); anything else is refused before anything can be approved.
+    `account` (Slurm project) is optional: omitted, it comes from
+    FIRECREST_V2_ACCOUNT or the user's single project in userinfo, and the
+    `summary` shows it. Production Alps refuses jobs without one.
     """
     try:
         _, service = _core()
@@ -258,6 +261,16 @@ async def prepare_job(
             )
             if working_directory is None:
                 raise GuardrailDenied("working_directory_invalid")
+        if account is None:
+            # Resolved before approval, so the human approves the account that
+            # will be billed (mandatory on Alps; None is fine on the demo).
+            # A client that cannot be built yet must not mask a guardrail denial.
+            try:
+                client = await get_client()
+            except Exception:  # noqa: BLE001
+                client = None
+            if isinstance(client, FirecRESTClientV2):
+                account = await client.resolve_account(system)
         prepared = service.prepare(
             actor=actor,
             system=system,
