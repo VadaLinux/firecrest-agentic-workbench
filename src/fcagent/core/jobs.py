@@ -402,6 +402,7 @@ def summarize(context: dict[str, Any]) -> str:
         f"time={context['parameters'].get('time_minutes')} min, "
         f"estimated {context['node_hours']} node-hours; "
         f"working directory {context['working_directory']}; "
-        f"valid until {context['expires_at']}; "
+        + (f"account {context['account']}; " if context.get("account") else "")
+        + f"valid until {context['expires_at']}; "
         f"script sha256 {context['script_sha256'][:16]}…"
     )

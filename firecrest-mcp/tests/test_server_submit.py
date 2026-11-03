@@ -636,3 +636,46 @@ async def test_summary_never_invents_missing_values() -> None:
     assert s["workbench_commit"] is None and s["outputs"] == []
     assert s["approved_by"] is None and "rerun_of" not in s
     assert summarize({"job_id": "2", "rerun_of": "1"})["rerun_of"] == "1"
+
+
+class AlpsLikeV2(FakeV2):
+    """Account resolved from userinfo, as on production Alps (2026-11-03)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.resolved: list[str] = []
+
+    async def resolve_account(self, system: str | None = None) -> str | None:  # type: ignore[override]
+        self.resolved.append(system or "")
+        return "f7t-hack-course2026-cscs"
+
+
+async def test_prepare_resolves_account_so_the_human_approves_it(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = AlpsLikeV2()
+
+    async def client():
+        return fake
+
+    monkeypatch.setattr(server, "get_client", client)
+    prepared = await _prepare()
+    assert "account f7t-hack-course2026-cscs" in prepared["summary"]
+    assert fake.resolved == ["cluster-slurm-api"]
+    _approve(env, prepared["prepared_id"])
+    result = await server.submit_job(prepared_id=prepared["prepared_id"])
+    assert result["ok"] is True
+    assert fake.calls[0]["account"] == "f7t-hack-course2026-cscs"
+
+
+async def test_explicit_account_skips_resolution(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = AlpsLikeV2()
+
+    async def client():
+        return fake
+
+    monkeypatch.setattr(server, "get_client", client)
+    prepared = await _prepare(account="proj-x")
+    assert "account proj-x" in prepared["summary"] and fake.resolved == []

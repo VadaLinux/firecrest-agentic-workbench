@@ -2,6 +2,16 @@
 
 > **Status: participation confirmed.** Event on 3 November 2026, OAT ETH Zürich (rooms S15/S16, 14th floor). This document and the rest of the repo are what we're bringing to build on the day — see `prompts/` for the build order and `README.md` → Status for logistics.
 
+## Update — 3 November 2026: first run on production Alps
+
+During the hackathon the full FirecREST v2 path — token, system discovery,
+filesystem, job submission, polling and output — was exercised against
+production Alps (`api.svc.cscs.ch/hpc/firecrest/v2`, FirecREST 2.6.1, system
+`daint`): job `5245627` ran on `nid006554` and exited `0`. Findings and the
+resulting client changes (mandatory Slurm account, `/metadata` 404 fallback) are
+in [`docs/hot-cache-v2.md` §8](./docs/hot-cache-v2.md); the Alps guardrail
+profile is `config/limits.alps.yaml` + `templates/alps/`.
+
 ## One sentence
 
 Let a researcher submit, monitor and diagnose HPC jobs through natural language — from a chat app, not a terminal — with the whole stack running on CSCS's own open-model inference service, not a third-party API.

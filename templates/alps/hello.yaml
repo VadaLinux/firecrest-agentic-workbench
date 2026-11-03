@@ -1,0 +1,19 @@
+# Alps (daint) variant of templates/hello.yaml, used with
+# FCAGENT_TEMPLATE_DIR=templates/alps and FCAGENT_LIMITS_FILE=config/limits.alps.yaml.
+# Same script; only the partition and the bounds differ (debug partition only).
+parameters:
+  nodes:
+    type: int
+    min: 1
+    max: 2
+  time_minutes:
+    type: int
+    min: 1
+    max: 30
+  partition:
+    type: enum
+    values: [debug]
+  job_name:
+    type: string
+  message:
+    type: string

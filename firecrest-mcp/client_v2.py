@@ -82,6 +82,10 @@ class FirecRESTConfigV2:
     system: str
     #: Optional default for prepare_job; None means the caller must pass one.
     working_directory: str | None = None
+    #: Slurm project account. Mandatory on production Alps (a submission
+    #: without one is answered with HTTP 500, docs/hot-cache-v2.md §8); the
+    #: local compose demo does not need it. None means "resolve from userinfo".
+    account: str | None = None
     timeout_s: float = DEFAULT_TIMEOUT_S
     log_dir: Path = field(default_factory=lambda: Path("logs"))
     verify_ssl: bool = True
@@ -104,6 +108,7 @@ class FirecRESTConfigV2:
             client_secret=need("FIRECREST_V2_CLIENT_SECRET"),
             system=need("FIRECREST_V2_SYSTEM"),
             working_directory=os.environ.get("FIRECREST_V2_WORKING_DIRECTORY") or None,
+            account=os.environ.get("FIRECREST_V2_ACCOUNT") or None,
             timeout_s=float(os.environ.get("FIRECREST_V2_TIMEOUT", DEFAULT_TIMEOUT_S)),
             log_dir=Path(os.environ.get("FIRECREST_V2_LOG_DIR", "logs")),
             verify_ssl=os.environ.get("FIRECREST_V2_VERIFY_SSL", "true").lower()
@@ -174,6 +179,55 @@ def _sbatch_paths(script: str | None, working_directory: str, job_id: str) -> di
 def _http_status(exc: Exception) -> int | None:
     responses = getattr(exc, "responses", None)
     return getattr(responses[-1], "status_code", None) if responses else None
+
+
+def _error_message(exc: Exception) -> str:
+    """The ``message`` of FirecREST's error envelope, for matching only.
+
+    Never returned to the caller: it may echo paths or user names.
+    """
+    responses = getattr(exc, "responses", None)
+    try:
+        body = responses[-1].json() if responses else None
+    except Exception:  # noqa: BLE001 - non-JSON body
+        return ""
+    message = body.get("message") if isinstance(body, dict) else None
+    return message if isinstance(message, str) else ""
+
+
+#: Observed on production Alps (FirecREST 2.6.1, 2026-11-03): a submission
+#: without ``job.account`` is answered with HTTP 500 and the message
+#: "Unexpected Slurm command response ... you must specify a project account".
+_ACCOUNT_HINT = (
+    "Slurm requires a project account on this system: set FIRECREST_V2_ACCOUNT "
+    "or pass account (see /status/{system}/userinfo)"
+)
+
+
+def _pick_account(userinfo: Any) -> str | None:
+    """Choose the Slurm account from a v2 ``userinfo`` answer, or ``None``.
+
+    ``userinfo.accounts`` (FirecREST >= 2.6, from ``sacctmgr``) lists the
+    user's associations with a ``default`` flag. ``root`` is Slurm's
+    cluster-level association, never a project, and Alps rejects it. One
+    remaining candidate is used; with several, only the one flagged default;
+    otherwise ``None``, because guessing whom to bill is not acceptable.
+    """
+    accounts = userinfo.get("accounts") if isinstance(userinfo, dict) else None
+    if not isinstance(accounts, list):
+        return None
+    candidates = [
+        entry
+        for entry in accounts
+        if isinstance(entry, dict)
+        and isinstance(entry.get("name"), str)
+        and entry["name"]
+        and entry["name"] != "root"
+    ]
+    if len(candidates) == 1:
+        return candidates[0]["name"]
+    defaults = [entry for entry in candidates if entry.get("default") is True]
+    return defaults[0]["name"] if len(defaults) == 1 else None
 
 
 #: Cause hints for FirecREST v2 error statuses, from the upstream mapping in
@@ -265,6 +319,12 @@ class FirecRESTClientV2:
         except Exception as exc:
             status = _http_status(exc)
             hint = _STATUS_HINTS.get(status or 0)
+            if (
+                method == "submit"
+                and status == 500
+                and "project account" in _error_message(exc)
+            ):
+                hint = _ACCOUNT_HINT
             message = f"FirecREST v2 {method} failed"
             if hint:
                 message = f"{message}: {hint}"
@@ -273,6 +333,25 @@ class FirecRESTClientV2:
     async def list_systems(self) -> list[dict[str, Any]]:
         """Return systems using ``Firecrest.systems()``."""
         return await self._call("systems")
+
+    async def resolve_account(self, system: str | None = None) -> str | None:
+        """The Slurm account to submit with, or ``None`` (never raises).
+
+        ``FIRECREST_V2_ACCOUNT`` wins. Otherwise ``GET /status/{system}/userinfo``
+        is read and :func:`_pick_account` decides. Called at prepare time so the
+        human approves the account that will actually be billed.
+        """
+        configured = getattr(self.config, "account", None)
+        if configured:
+            return configured
+        trace = self.last_trace  # a lookup must not replace the trace of a submit
+        try:
+            info = await self._call("userinfo", system or self.config.system)
+        except Exception:  # noqa: BLE001 - e.g. demo scheduler without sacctmgr
+            return None
+        finally:
+            self.last_trace = trace
+        return _pick_account(info)
 
     async def submit_job(
         self,
@@ -292,6 +371,7 @@ class FirecRESTClientV2:
         if not working_directory or not working_directory.startswith("/"):
             raise FirecRESTError("submit_job needs an absolute working_directory")
         system = system or self.config.system
+        account = account or getattr(self.config, "account", None)
         response = await self._call(
             "submit",
             system,
@@ -428,8 +508,16 @@ class FirecRESTClientV2:
         (``job_metadata`` answers 501 there — see docs/local-env.md), so when
         metadata yields no paths this falls back to Slurm's own default
         ``<working_directory>/slurm-<jobid>.out``, same as scripts/smoke_local.py.
+
+        Production Alps answers ``404`` for the metadata of a job Slurm has
+        already purged from ``scontrol`` (minutes after it ends) when ``sacct``
+        does not store job scripts — see docs/hot-cache-v2.md §8. The same
+        fallback then applies, and also tries ``slurm-<jobid>.err`` (what the
+        shipped templates write); a derived stderr path that cannot be read is
+        skipped, not an error.
         """
         system = system or self.config.system
+        derived = False
         try:
             metadata = await self.get_job_metadata(job_id, system)
         except FirecRESTError:
@@ -437,18 +525,26 @@ class FirecRESTClientV2:
         if not metadata.get("standardOutput") and not metadata.get("standardError"):
             status = await self.get_job_status(job_id, system)
             if status.working_directory:
+                base = f"{status.working_directory.rstrip('/')}/slurm-{job_id}"
                 metadata = {
-                    "standardOutput": f"{status.working_directory}/slurm-{job_id}.out"
+                    "standardOutput": f"{base}.out",
+                    "standardError": f"{base}.err",
                 }
+                derived = True
         log = JobLog(jobid=str(job_id))
         for metadata_key, stream in (
             ("standardOutput", "stdout"),
             ("standardError", "stderr"),
         ):
             if remote_path := metadata.get(metadata_key):
-                output = await self._call(
-                    "head", system, remote_path, num_bytes=DEFAULT_OUTPUT_BYTES
-                )
+                try:
+                    output = await self._call(
+                        "head", system, remote_path, num_bytes=DEFAULT_OUTPUT_BYTES
+                    )
+                except FirecRESTError:
+                    if derived and stream == "stderr":
+                        continue
+                    raise
                 text = (
                     output.get("content", "")
                     if isinstance(output, dict)

@@ -19,6 +19,8 @@ picture of v2 before deciding how `firecrest-mcp/` should speak it.
   digest `sha256:3dedfc6415191b86386e688938f31c1f1204fb473e0c3318eb92aea2fbd0226d`,
   pulled 2026-09-12. The FirecREST app itself reported `app_version: 2.6.0`
   (`GET /openapi.json` → `info.version`).
+- **Production Alps (2026-11-03):** first live run against
+  `api.svc.cscs.ch/hpc/firecrest/v2` (FirecREST 2.6.1, system `daint`) — see §8.
 - **Current stack:** FirecREST **2.6.1** (`ghcr.io/eth-cscs/firecrest-v2-demo:2.6.1`,
   index digest `sha256:ed12f77ea5f21964805562743f02e22e810fe742246826a01111f411b27f494c`,
   source tag commit `e6b5a418c7aa1f9f5bacea413883fc8a1f8eeb7c`). See `docs/local-env.md`.
@@ -485,3 +487,97 @@ what the request implied.
 | `download_file(path, job_id)` | saving a job output | records path + SHA-256 in the job's card |
 | `get_provenance(job_id)` | "how was this run?" / reproduce | card in `runs/jobs/<jobId>/` (gitignored) |
 | `rerun_from_provenance(job_id)` | rerun a past job | checks rendered-script hash, then needs a new approval |
+
+## 8. Production Alps — first live validation, 2026-11-03
+
+Everything above §8 was verified against the demo launcher or the local compose
+stack. This section is the first run against **production Alps**, done during the
+CSCS FirecREST Hackathon (OAT ETH Zürich) with the hackathon course credential.
+
+- **Endpoint:** `https://api.svc.cscs.ch/hpc/firecrest/v2`, FirecREST **2.6.1**.
+- **Token:** CSCS Keycloak, realm `firecrest-clients`, client-credentials grant →
+  `200`, Bearer token with a **300 s** TTL. pyfirecrest's `ClientCredentialsAuth`
+  renews it before expiry, so `client_v2.py` needs nothing for long polls.
+- **Systems visible:** `eiger`, `daint`. All runs below target `daint`.
+- **How it was run:** direct HTTP calls (curl), one by one — **not** through the
+  MCP server. The prepare → approve → submit path of `server.py` has not yet run
+  on Alps; see "Not yet verified" below.
+
+### 8.1 Sequence and observed answers
+
+| # | Call | Observed |
+|---|---|---|
+| 1 | `GET /status/systems` without a token | `401`, proper challenge: gateway live |
+| 2 | `POST` to Keycloak (client credentials) | `200`, Bearer, `expires_in` 300 |
+| 3 | `GET /status/systems` | `eiger`, `daint`; scheduler, SSH, filesystem, S3 healthy |
+| 4 | `GET /status/daint/userinfo` | user `course_941716d1`, group `f7t-hack-course2026-cscs` |
+| 5 | `GET /status/daint/partitions` | `debug` 24 nodes, `low`/`normal` 922 each, `xfer` 2 — all `UP` |
+| 6 | `GET /filesystem/daint/ops/ls`, `ops/stat` | home and scratch resolved; uid/gid match userinfo |
+| 7 | `POST /compute/daint/jobs` (inline script, with `account`) | `201`, `{"jobId": "5245627"}` |
+| 8 | `GET /compute/daint/jobs/5245627` | `status.state` `COMPLETED`, exit code `0`, node `nid006554`, elapsed 14 s |
+| 9 | `GET /filesystem/daint/ops/view` on the stdout path | `hello from nid006554 at 2026-11-03T13:07:53+01:00` / `done` |
+
+### 8.2 Findings, and what they mean for `client_v2.py`
+
+1. **Payload shape is nested camelCase** (`{"job": {"script", "workingDirectory", ...}}`).
+   Same as §4. Only hand-written calls get this wrong; `client_v2.py` goes through
+   `pyfirecrest.v2.Firecrest.submit`, which builds exactly this body.
+   **No code change.**
+2. **A Slurm project account is mandatory on Alps.** Without `job.account` the
+   answer is `500` with `"Unexpected Slurm command response ... you must specify a
+   project account"` — a scheduler refusal surfaced as a server error, not a `4xx`.
+   The valid value was `f7t-hack-course2026-cscs`; `root` (Slurm's cluster-level
+   association) is rejected as a non-existent project. **Changed:**
+   - `FIRECREST_V2_ACCOUNT` sets the account; `submit_job` falls back to it.
+   - Without it, `prepare_job` reads `userinfo.accounts` (FirecREST ≥ 2.6,
+     `sacctmgr`-backed, `UserInfoResponse` in `src/firecrest/status/models.py`)
+     and takes the only non-`root` account, or the one flagged default; when that
+     is ambiguous it leaves the account unset rather than guess whom to bill.
+     The account is resolved **before approval** and shown in the summary, so the
+     human approves what will be billed.
+   - That specific `500` now carries a hint naming `FIRECREST_V2_ACCOUNT`; the
+     response body is matched, never echoed.
+3. **`GET /compute/{system}/jobs` lists only pending/running jobs.** A finished job
+   is read with `GET /compute/{system}/jobs/{id}`, state under `status.state`.
+   `client_v2.get_job_status` already uses `job_info(system, id)`, i.e. the per-id
+   route. **No code change.** Note Slurm's default 24 h accounting window: pass
+   `time_window` for older jobs.
+4. **`GET /compute/{system}/jobs/{id}/metadata` answered `404`** for the completed
+   job. Upstream explains it (`src/lib/scheduler_clients/slurm/slurm_cli_client.py`,
+   `get_job_metadata`, eth-cscs/firecrest-v2 at `7616479`): paths come from
+   `scontrol show job`, which forgets a job minutes after it ends (Slurm
+   `MinJobAge`), and the `sacct` fallback needs Slurm ≥ 24.05 plus
+   `AccountingStoreFlags=job_env,job_script`. **Changed:** `get_job_log` already fell
+   back to `<workingDirectory>/slurm-<id>.out`; it now also tries `slurm-<id>.err`
+   (what the templates write) and skips it quietly if absent. `submit_job` keeps
+   deriving paths from the `#SBATCH --output/--error` directives when metadata is
+   unavailable.
+
+Items 2 and 4 are worth raising upstream: a missing account could be a `400` with
+the Slurm message, and the metadata gap could be documented next to the endpoint.
+
+### 8.3 Running the workbench against Alps
+
+```bash
+# firecrest-mcp/.env (never committed)
+FIRECREST_API_VERSION=v2
+FIRECREST_V2_BASE_URL=https://api.svc.cscs.ch/hpc/firecrest/v2
+FIRECREST_V2_TOKEN_URL=<CSCS Keycloak token URL, realm firecrest-clients>
+FIRECREST_V2_SYSTEM=daint
+FIRECREST_V2_ACCOUNT=<your Slurm project>        # optional, see 8.2 item 2
+FIRECREST_V2_WORKING_DIRECTORY=/users/<user>
+
+# guardrails for Alps instead of the compose demo
+FCAGENT_LIMITS_FILE=config/limits.alps.yaml     # daint, debug only, ≤2 nodes, ≤30 min
+FCAGENT_TEMPLATE_DIR=templates/alps
+```
+
+### 8.4 Not yet verified on Alps
+
+- The MCP path end to end (`prepare_job` → `fcagent approve` → `submit_job` →
+  `get_job_status` → `get_job_log`) with the profile above.
+- `ops/head`, which `get_job_log` uses (the manual run used `ops/view`).
+- `cancel_job`, multi-node jobs, and `eiger`.
+
+Regression tests for this section: `firecrest-mcp/tests/test_client_v2.py`
+(block "Production Alps") and `tests/test_alps_config.py`.
